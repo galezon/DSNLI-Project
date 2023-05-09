@@ -1,2 +1,9 @@
 To do:
-    Check for interactions via barplots (Chapter 2)
+    Check for interactions via barplots (Chapter 2).
+    Set the reference class.
+
+    Check "accuracy" of the claim frequency predictions.
+    Check "accuracy" of the claim amount given freq >= 1.
+    Find an "accuracy" metric for the combination of both predictions.
+
+Finished:
