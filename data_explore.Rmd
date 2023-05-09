@@ -59,7 +59,7 @@ plot(cbind(data$AGEPH, data$chargtot), xlab="Age of Policy Holder", ylab="Claim 
      main="chargtot vs ageph")
 ```
 
-Quick Poisson GLM and plot. The Gamma GLM of chargtot vs ageph did not go well. We can definitely see that older people are safer drivers.
+Quick Poisson GLM and plot. The Gamma GLM of chargtot vs ageph did not go well. We can definitely see that older people are safer drivers. The diagnostic plots the Poisson GLM is very interesting, but since this is just a quick test I won't analyze or discuss them.
 ```{r}
 poi_reg = glm(nbrtotc~AGEPH, data=data, family=poisson(link="log"))
 
