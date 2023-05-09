@@ -1,0 +1,95 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Load needed libraries.
+```{r}
+library(readxl)
+library(plyr)
+```
+
+Read data.
+```{r}  
+postcodes = read_xls("./initial_docs/inspost.xls")
+data = read.csv("./initial_docs/Assignment.csv")
+```
+
+These are just further info about the postal-codes.
+```{r}
+head(postcodes)
+```
+
+I can join this data with the latitude and longitude data if I need to.
+```{r}
+head(data)
+```
+
+We do not need both exposure and log of exposure.
+```{r}
+data = subset(data, select=-c(lnexpo))
+```
+
+Set categoricals as such.
+```{r}
+cat_clmns = c("CODPOSS", "agecar", "sexp", "fuelc", "split", "usec",
+              "fleetc", "sportc", "coverp", "powerc")
+for (cat_col in cat_clmns) {
+  data[,cat_col] = as.factor(data[, cat_col])
+}
+head(data)
+```
+
+See distribution of numerical data.
+```{r}
+par(mfrow=c(2, 2))
+
+hist(data$AGEPH)  # right-skewed slightly
+hist(data$nbrtotc)  # 1 and even 2 is not so insignificant apparently
+hist(data$chargtot)  # very hard to see anything, Gamma would be the most appropriate here
+hist(data$duree)  # for the vast majority exposure is the whole year
+```
+
+The only continuous predictor we have is age, and even then I might bin it later. The plots below are not very informative, so I will plot a Poisson GLM for nrtotc vs ageph and a Gamma GLM for chargtot vs ageph real quick.
+```{r}
+par(mfrow=c(1, 2))
+plot(cbind(data$AGEPH, data$nbrtotc), xlab="Age of Policy Holder", ylab="Number of Claims",
+     main="nbrtotc vs ageph")
+plot(cbind(data$AGEPH, data$chargtot), xlab="Age of Policy Holder", ylab="Claim Amount",
+     main="chargtot vs ageph")
+```
+
+Quick Poisson GLM and plot. The Gamma GLM of chargtot vs ageph did not go well. We can definitely see that older people are safer drivers. The diagnostic plots the Poisson GLM is very interesting, but since this is just a quick test I won't analyze or discuss them.
+```{r}
+poi_reg = glm(nbrtotc~AGEPH, data=data, family=poisson(link="log"))
+
+# plot the resulting mean
+youngest = min(data$AGEPH)
+oldest = max(data$AGEPH)
+
+ages = data.frame(seq(youngest, oldest)); colnames(ages) = c("AGEPH")
+preds = predict.glm(poi_reg, ages, type="response")
+
+plot(cbind(ages, preds), xlab="Age of policy holder", ylab="Mean Accidents",
+     main="Mean nbrtotc vs AGEPH", type="l")
+```
+
+Let's see counts for categoricals.
+```{r}
+factor_clmns = names(Filter(is.factor, data))
+factor_clmns = factor_clmns[-1]  # remove postalcodes
+for (col in factor_clmns) {
+  print(count(data, vars=col))
+}
+```
+
+
+
+
+
+
+
+
+
+
+
