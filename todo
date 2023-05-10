@@ -5,6 +5,7 @@ To do:
     Use Berk et al's model agnostic coefficient for confidence intervals.
     Check for Negative Binomial GLM as well.
     Check for over-dispersion when using Poisson, maybe Quasi-Poisson?
+    Group together the factors into groups that make sense to check for interactions.
 
     Do a lack of fit test, based on Statistical Modelling chapter 2.
     Check "accuracy" of the claim frequency predictions.
