@@ -91,7 +91,7 @@ Let's see counts for categoricals.
 factor_clmns = names(Filter(is.factor, data))
 factor_clmns = factor_clmns[-1]  # remove postalcodes
 for (col in factor_clmns) {
-  print(count(data, vars=col))
+  print(plyr::count(data, vars=col))
 }
 ```
 
@@ -112,7 +112,9 @@ head(levels, 20)
 levels = subset(levels, select=-c(freq))
 ```
 
-Let us see if there is a lack-of-fit between just nbrtotc vs AGEPH. Note that the points are jittered. On both plots, we can definitely see the change of density around 0 between young (17-30ish) drivers and old (60-78ish) drivers, so the overall decreasing trend is certainly justified.
+Let us see if there is a lack-of-fit between just nbrtotc vs AGEPH. Note that the points are jittered. On the left plot, we can definitely see the change of density around 0 between young (17-30ish) drivers and old (60-78ish) drivers, so the overall decreasing trend is certainly justified.
+
+On the other hand, on the right plot we can definitely see that ideally the predictions should be higher for older drivers (60-78ish). Compare the grids between (50, 62.5] and (62.5, 70]. Keeping in mind that there are more drivers in the (50, 62.5] range, compare the densities around 0 and around 1. For the older drivers, the ratio of points (around 0) over (around 1) is smaller compared to the (50, 62.5] range. Of course, this being a single-variable GLM, we will only have a strictly monotonic prediction. This already suggests underfitting.
 ```{r, echo=FALSE}
 set.seed(0916778)
 tmp = subset_on_level(data, levels[1, ])
@@ -135,7 +137,7 @@ plot2 = plot2 + labs(x="Age of policy holder", y="Number of claims", title="leve
 grid.arrange(plot1, plot2, ncol=2)
 ```
 
-However, these plots suggest a lack of fit. While I do not know the proper distribution for a logistic regression (or other families), it's pretty easy to see that there should be multiple levels in the data. We can see that there are at least 4 different levels.
+Furthermore, these GLM diagnostic plots suggest a lack of fit. While I do not know the proper distributions for a logistic regression (or other families), it's pretty easy to see that there should be multiple levels in the data. We can see that there are at least 4 different levels.
 ```{r}
 par(mfrow=c(1, 2))
 plot(poi_reg, which=3)
