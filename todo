@@ -1,0 +1,14 @@
+To do:
+    Check for interactions via barplots (Chapter 2).
+    Set the reference class.
+    Check which function can do mass AIC comparison.
+    Use Berk et al's model agnostic coefficient for confidence intervals.
+    Check for Negative Binomial GLM as well.
+    Check for over-dispersion when using Poisson, maybe Quasi-Poisson?
+
+    Do a lack of fit test, based on Statistical Modelling chapter 2.
+    Check "accuracy" of the claim frequency predictions.
+    Check "accuracy" of the claim amount given freq >= 1.
+    Find an "accuracy" metric for the combination of both predictions.
+
+Finished:
