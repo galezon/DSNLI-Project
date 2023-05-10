@@ -1,0 +1,149 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Load needed libraries.
+```{r, echo=FALSE, include=FALSE}
+library(readxl)
+library(plyr)  # I need some old functions from here
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+```
+
+Custom-made functions.
+```{r}
+source("../r_utils/subset_on_level.r")
+```
+
+
+Read data.
+```{r}  
+postcodes = read_xls("../initial_docs/inspost.xls")
+data = read.csv("../data/train.csv")
+names(data)[names(data) == "X"] = "policy_id"  # so we can identify if needed
+
+set.seed(0916778)
+```
+
+These are just further info about the postal-codes.
+```{r}
+head(postcodes)
+```
+
+I can join this data with the latitude and longitude data if I need to.
+```{r}
+head(data)
+```
+
+We do not need both exposure and log of exposure.
+```{r}
+data = subset(data, select=-c(lnexpo))
+```
+
+Set categoricals as such.
+```{r}
+cat_clmns = c("CODPOSS", "agecar", "sexp", "fuelc", "split", "usec",
+              "fleetc", "sportc", "coverp", "powerc")
+for (cat_col in cat_clmns) {
+  data[,cat_col] = as.factor(data[, cat_col])
+}
+head(data)
+```
+
+See distribution of numerical data.
+```{r, echo=FALSE}
+par(mfrow=c(2, 2))
+
+hist(data$AGEPH)  # right-skewed slightly
+hist(data$nbrtotc)  # 1 and even 2 is not so insignificant apparently
+hist(data$chargtot)  # very hard to see anything, Gamma would be the most appropriate here
+hist(data$duree)  # for the vast majority exposure is the whole year
+```
+
+The only continuous predictor we have is age, and even then I might bin it later. The plots below are not very informative, so I will plot a Poisson GLM for nrtotc vs ageph and a Gamma GLM for chargtot vs ageph real quick.
+```{r, echo=FALSE}
+par(mfrow=c(1, 2))
+plot(cbind(data$AGEPH, data$nbrtotc), xlab="Age of Policy Holder", ylab="Number of Claims",
+     main="nbrtotc vs ageph")
+plot(cbind(data$AGEPH, data$chargtot), xlab="Age of Policy Holder", ylab="Claim Amount",
+     main="chargtot vs ageph")
+```
+
+Quick Poisson GLM and plot. The Gamma GLM of chargtot vs ageph did not go well. We can definitely see that older people are safer drivers.
+```{r, echo=FALSE}
+poi_reg = glm(nbrtotc~AGEPH, data=data, family=poisson(link="log"))
+
+# plot the resulting mean
+youngest = min(data$AGEPH)
+oldest = max(data$AGEPH)
+
+ages = data.frame(seq(youngest, oldest)); colnames(ages) = c("AGEPH")
+preds = predict.glm(poi_reg, ages, type="response")
+
+plot(cbind(ages, preds), xlab="Age of policy holder", ylab="Mean Accidents",
+     main="Mean nbrtotc vs AGEPH", type="l")
+```
+
+Let's see counts for categoricals.
+```{r}
+factor_clmns = names(Filter(is.factor, data))
+factor_clmns = factor_clmns[-1]  # remove postalcodes
+for (col in factor_clmns) {
+  print(count(data, vars=col))
+}
+```
+
+We only have one continuous predictor (that we might bin later), AGEPH. The rest of our predictors are categorical. We can do level plots (plot nbrtotc vs AGEPH given factors=(1, 0 ,...)). Let us try to select a few candidates.
+```{r}
+counts = plyr::count(data, vars=factor_clmns)  # intentionally ignored postal codes in this
+head(counts)
+print(sort(counts$freq, decreasing=TRUE)[1:10])  # size on these levels is very respectable
+                                                 # keep in mind that trainset is only 64% of full data
+```
+
+Technically I could have aggregated the postcodes together as another factor, something like {Rural, Urban} or {Brussels, Antwerp, Ghent, Charleroi, Liege, others}, the most populous cities in Belgium. However, I will only use the spatial data in the GAM step.
+
+Below are the possible settings we can use to see if there is a lack of fit for nbrtotc vs AGEPH.
+```{r}
+levels = counts[order(counts$freq, decreasing=TRUE), ]
+head(levels, 20)
+levels = subset(levels, select=-c(freq))
+```
+
+Let us see if there is a lack-of-fit between just nbrtotc vs AGEPH. Note that the points are jittered. On both plots, we can definitely see the change of density around 0 between young (17-30ish) drivers and old (60-78ish) drivers, so the overall decreasing trend is certainly justified.
+```{r, echo=FALSE}
+set.seed(0916778)
+tmp = subset_on_level(data, levels[1, ])
+tmp_sample = tmp[sample(nrow(tmp), 400), ]
+
+map1 = aes(x=AGEPH, y=nbrtotc)
+map2 = aes(x=AGEPH, y=preds)
+plot1 = ggplot(data=tmp_sample, mapping=map1) + geom_jitter(height=0.2, width=0, cex=0.5) + geom_line(mapping=map2, data=cbind(ages, preds))
+plot1 = plot1 + labs(x="Age of policy holder", y="Number of claims", title="levels[1, ]")
+
+set.seed(0916778)
+tmp = subset_on_level(data, levels[12, ])
+tmp_sample = tmp[sample(nrow(tmp), 400), ]
+
+map1 = aes(x=AGEPH, y=nbrtotc)
+map2 = aes(x=AGEPH, y=preds)
+plot2 = ggplot(data=tmp_sample, mapping=map1) + geom_jitter(height=0.2, width=0, cex=0.5) + geom_line(mapping=map2, data=cbind(ages, preds))
+plot2 = plot2 + labs(x="Age of policy holder", y="Number of claims", title="levels[12, ]")
+
+grid.arrange(plot1, plot2, ncol=2)
+```
+
+However, these plots suggest a lack of fit. While I do not know the proper distribution for a logistic regression (or other families), it's pretty easy to see that there should be multiple levels in the data. We can see that there are at least 4 different levels.
+```{r}
+par(mfrow=c(1, 2))
+plot(poi_reg, which=3)
+plot(poi_reg, which=5)
+```
+
+
+
+
+
+
