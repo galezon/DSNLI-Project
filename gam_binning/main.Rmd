@@ -1,0 +1,126 @@
+---
+title: "Binning AGEPH with GAM."
+output: html_notebook
+---
+
+Load needed libraries. I wanted to use step.Gam (similar to stepAIC, but for GAMs), but unfortunately I just couldn't get it to work.
+```{r, echo=FALSE, warning=FALSE}
+library(mgcv)
+
+# install.packages("step.Gam")  
+```
+
+Read datasets.
+```{r}
+load("../data/train.Rda")
+```
+
+The goal of this notebook is to bin our only continuous variable AGEPH, and to bin the spatial effects (Lon, Lat). As my main model will be the GLM, we will not focus too much on inference of the GAM models of this notebook. Rather, we will simply try to find the best model, then bin it.
+
+Unlike the case in Roel Henckaerts, Katrien Antonio, Maxime Clijsters & Roel Verbelen (2018), from now on referred as SAJ-GAM, we only have AGEPH as our 'true' continuous co-variate. LAT&LON will automatically be grouped together in a bivariate smooth function. There is no need to search for interaction effects among continuous co-variates anymore, but we can search for interaction of categorical co-variates.
+
+However I will not try to find for interactions for two reasons: I can't find a package that does mass model selection for GAMs, and it takes a while to compute a single GAM model. Besides, the true model is the GLM, this is just for binning.
+
+We will follow SAJ-GAM's approach in firstly using BIC to select the best GAM candidate model, before then using AIC for the binning.
+
+# Binning Frequency.
+
+## Finding a GAM model for frequency.
+
+Let us try the most obvious one first, with all co-variates but no interaction terms. Note that it makes sense to compare likelihood based model-selection, since we are not altering the responses.
+
+Seems like using thin-plates or cubics for AGEPH does not matter too much, but using TE for the spatial smoothers increases the likelihood by 57. This is bad news for model-selection, as we have 104740 observations in the trainset and thus a penalty/parameter of 11.5 if we use BIC. In other words, the models we picked with TE *might* have 5 less co-variates.
+
+Though the difference is tiny in terms of likelihood, the model with cubic regression seems to perform better, so to simplify things we will work with cubic splines for AGEPH.
+```{r}
+# basic
+f1 = nbrtotc ~ offset(log(duree)) + s(LAT, LONG, bs="tp") + s(AGEPH, bs="tp") + agecar + sexp + fuelc + split + usec + fleetc + sportc + coverp + powerc
+
+
+# cubic splines for AGEPH
+f2 = nbrtotc ~ offset(log(duree)) + s(LAT, LONG, bs="tp") + s(AGEPH, bs="cr") + agecar + sexp + fuelc + split + usec + fleetc + sportc + coverp + powerc
+
+# te instead of tp for spatial
+f3 = nbrtotc ~ offset(log(duree)) + te(LAT, LONG) + s(AGEPH, bs="cr") + agecar + sexp + fuelc + split + usec + fleetc + sportc + coverp + powerc
+
+
+gam1 = gam(f1, family=poisson(link="log"), data=data, method="GCV.Cp")
+gam2 = gam(f2, family=poisson(link="log"), data=data, method="GCV.Cp")
+gam3 = gam(f3, family=poisson(link="log"), data=data, method="GCV.Cp")
+
+print(paste("AIC of thin-plate(AGEPH) = ", round(gam1$aic, 1)))
+print(paste("AIC of cubic(AGEPH) = ", round(gam2$aic, 1)))
+print(paste("AIC of TE(spatial) = ", round(gam3$aic, 1)))
+
+print(paste("Difference in BIC between cubic and thin-plate = ", round((gam1$aic - gam2$aic)*log(dim(data)[1])/2, 3)))
+```
+
+We haven't actually analyze the result of the GAM. Not much we can say about the smooth functions, since we do need them. On the other hand, it seems like *usec* and *sportc* can be dropped.
+```{r}
+summary(gam1)
+```
+
+Seems to confirm the previous hunch that *usec* and *sportc* can be dropped.
+```{r}
+anova(gam1)
+```
+
+Let us refit without *usec* and *sportc*. BIC drops, so that's good. Co-variate *sexp* seems to be a candidate to further drop.
+```{r}
+f4 = nbrtotc ~ offset(log(duree)) + s(LAT, LONG, bs="tp") + s(AGEPH, bs="cr") + agecar + sexp + fuelc + split + fleetc + coverp + powerc
+
+gam4 = gam(f4, family=poisson(link="log"), data=data, method="GCV.Cp")
+print(paste("BIC(gam1) = ", BIC(gam1)))
+print(paste("BIC(gam4) = ", BIC(gam4)))
+summary(gam4)
+```
+
+Dropping *sexp* again results in a drop of BIC. I don't even know the distribution used for the p-values, but looks like the remaining co-variates are significant. Another argument is that the multiplicative effects of remaining covariates are very strong here.
+```{r}
+f5 = nbrtotc ~ offset(log(duree)) + s(LAT, LONG, bs="tp") + s(AGEPH, bs="cr") + agecar + fuelc + split + fleetc + coverp + powerc
+
+gam5 = gam(f5, family=poisson(link="log"), data=data, method="GCV.Cp")
+
+print(paste("BIC(gam4) = ", BIC(gam4)))
+print(paste("BIC(gam5) = ", BIC(gam5)))
+summary(gam5)
+```
+
+Really it's a negligible difference but ok, we will stick with the cubic spline.
+```{r}
+f6 = nbrtotc ~ offset(log(duree)) + s(LAT, LONG, bs="tp") + s(AGEPH, bs="tp") + agecar + fuelc + split + fleetc + coverp + powerc
+
+gam6 = gam(f6, family=poisson(link="log"), data=data, method="GCV.Cp")
+
+print(paste("BIC(gam5) = ", BIC(gam5)))
+print(paste("BIC(gam6) = ", BIC(gam6)))
+```
+
+## Finding the bins.
+
+
+
+
+
+
+
+
+
+
+
+
+# Binning Severity.
+
+I will streamline the process in this case since this is similar to what we had before.
+## Finding a GAM model for severity.
+
+
+
+
+
+
+
+
+
+
+
