@@ -1,5 +1,5 @@
 ---
-title: "R Notebook"
+title: "Data Exploration for DSNLI project."
 output: html_notebook
 ---
 
@@ -32,23 +32,25 @@ These are just further info about the postal-codes.
 head(postcodes)
 ```
 
-I can join this data with the latitude and longitude data if I need to.
+I can join this data with the latitude and longitude data if I need to. 
 ```{r}
 head(data)
 ```
 
-We do not need both exposure and log of exposure.
+We do not need both exposure and log of exposure. Also, not clear what the column nbrtotan is, so I will drop it.
 ```{r}
-data = subset(data, select=-c(lnexpo))
+data = subset(data, select=-c(lnexpo, nbrtotan))
 ```
 
-Set categoricals as such.
+Set categoricals, and merge with postcodes.
 ```{r}
 cat_clmns = c("CODPOSS", "agecar", "sexp", "fuelc", "split", "usec",
               "fleetc", "sportc", "coverp", "powerc")
 for (cat_col in cat_clmns) {
   data[,cat_col] = as.factor(data[, cat_col])
 }
+
+data = merge(data, postcodes, by="CODPOSS")
 head(data)
 ```
 
@@ -94,6 +96,20 @@ for (col in factor_clmns) {
   print(plyr::count(data, vars=col))
 }
 ```
+
+Relevel the factors based on the mode. I think as.factor already does this automatically but it doesn't hut to be careful.
+```{r}
+data = within(data, agecar<-relevel(agecar, ref="6-10"))
+data = within(data, sexp<-relevel(sexp, ref="Male"))
+data = within(data, fuelc<-relevel(fuelc, ref="Petrol"))
+data = within(data, split<-relevel(split, ref="Once"))
+data = within(data, usec<-relevel(usec, ref="Private"))
+data = within(data, fleetc<-relevel(fleetc, ref="No"))
+data = within(data, sportc<-relevel(sportc, ref="No"))
+data = within(data, coverp<-relevel(coverp, ref="MTPL"))
+data = within(data, powerc<-relevel(powerc, ref="<66"))
+```
+
 
 We only have one continuous predictor (that we might bin later), AGEPH. The rest of our predictors are categorical. We can do level plots (plot nbrtotc vs AGEPH given factors=(1, 0 ,...)). Let us try to select a few candidates.
 ```{r}
@@ -144,6 +160,10 @@ plot(poi_reg, which=3)
 plot(poi_reg, which=5)
 ```
 
+Save the processed train data.
+```{r}
+save(data, file="../data/train.Rda")
+```
 
 
 
