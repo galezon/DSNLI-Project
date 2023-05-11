@@ -88,12 +88,12 @@ plot(cbind(ages, preds), xlab="Age of policy holder", ylab="Mean Accidents",
      main="Mean nbrtotc vs AGEPH", type="l")
 ```
 
-Let's see counts for categoricals.
+Let's see distribution of the categoricals.
 ```{r}
-factor_clmns = names(Filter(is.factor, data))
-factor_clmns = factor_clmns[-1]  # remove postalcodes
+par(mfrow=c(3, 3))
+factor_clmns = cat_clmns[-1]  # remove postalcodes
 for (col in factor_clmns) {
-  print(plyr::count(data, vars=col))
+  barplot(summary(data[, col]), main=col)
 }
 ```
 
