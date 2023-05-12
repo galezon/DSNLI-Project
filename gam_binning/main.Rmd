@@ -6,13 +6,19 @@ output: html_notebook
 Load needed libraries. I wanted to use step.Gam (similar to stepAIC, but for GAMs), but unfortunately I just couldn't get it to work.
 ```{r, echo=FALSE, warning=FALSE}
 library(mgcv)
+library(classInt)
+library(evtree)
+library(readxl)
 
 # install.packages("step.Gam")  
 ```
 
-Read datasets.
+Read datasets, custom functions.
 ```{r}
 load("../data/train.Rda")
+postcodes = read_xls("../initial_docs/inspost.xls")
+
+source("../r_utils/smooth_to_factors.r")
 ```
 
 The goal of this notebook is to bin our only continuous variable AGEPH, and to bin the spatial effects (Lon, Lat). As my main model will be the GLM, we will not focus too much on inference of the GAM models of this notebook. Rather, we will simply try to find the best model, then bin it.
@@ -43,9 +49,13 @@ f2 = nbrtotc ~ offset(log(duree)) + s(LAT, LONG, bs="tp") + s(AGEPH, bs="cr") + 
 # te instead of tp for spatial
 f3 = nbrtotc ~ offset(log(duree)) + te(LAT, LONG) + s(AGEPH, bs="cr") + agecar + sexp + fuelc + split + usec + fleetc + sportc + coverp + powerc
 
-
+set.seed(0916778)  # so fitting can be reproduced without going through other steps
 gam1 = gam(f1, family=poisson(link="log"), data=data, method="GCV.Cp")
+
+set.seed(0916778)
 gam2 = gam(f2, family=poisson(link="log"), data=data, method="GCV.Cp")
+
+set.seed(0916778)
 gam3 = gam(f3, family=poisson(link="log"), data=data, method="GCV.Cp")
 
 print(paste("AIC of thin-plate(AGEPH) = ", round(gam1$aic, 1)))
@@ -67,6 +77,7 @@ anova(gam1)
 
 Let us refit without *usec* and *sportc*. BIC drops, so that's good. Co-variate *sexp* seems to be a candidate to further drop.
 ```{r}
+set.seed(0916778)
 f4 = nbrtotc ~ offset(log(duree)) + s(LAT, LONG, bs="tp") + s(AGEPH, bs="cr") + agecar + sexp + fuelc + split + fleetc + coverp + powerc
 
 gam4 = gam(f4, family=poisson(link="log"), data=data, method="GCV.Cp")
@@ -77,6 +88,7 @@ summary(gam4)
 
 Dropping *sexp* again results in a drop of BIC. I don't even know the distribution used for the p-values, but looks like the remaining co-variates are significant. Another argument is that the multiplicative effects of remaining covariates are very strong here.
 ```{r}
+set.seed(0916778)
 f5 = nbrtotc ~ offset(log(duree)) + s(LAT, LONG, bs="tp") + s(AGEPH, bs="cr") + agecar + fuelc + split + fleetc + coverp + powerc
 
 gam5 = gam(f5, family=poisson(link="log"), data=data, method="GCV.Cp")
@@ -88,6 +100,7 @@ summary(gam5)
 
 Really it's a negligible difference but ok, we will stick with the cubic spline.
 ```{r}
+set.seed(0916778)
 f6 = nbrtotc ~ offset(log(duree)) + s(LAT, LONG, bs="tp") + s(AGEPH, bs="tp") + agecar + fuelc + split + fleetc + coverp + powerc
 
 gam6 = gam(f6, family=poisson(link="log"), data=data, method="GCV.Cp")
@@ -96,18 +109,100 @@ print(paste("BIC(gam5) = ", BIC(gam5)))
 print(paste("BIC(gam6) = ", BIC(gam6)))
 ```
 
+Taking a look at the smooth functions. Interesting how in the 2d-plot you can see Brussels and Antwerp.
+```{r, echo=FALSE}
+par(mfrow=c(1, 2))
+plot(gam5)
+```
+
+
 ## Finding the bins.
 
+Preparing a dataframe for clustering. Interesting warning.
+```{r}
+# learnt the hard way that one has to supply all of the other terms in the formula
+postcodes['duree'] = data[1, 'duree']
+postcodes['AGEPH'] = data[1, 'AGEPH']
+postcodes['agecar'] = data[1, 'agecar']
+postcodes['fuelc'] = data[1, 'fuelc']
+postcodes['split'] = data[1, 'split']
+postcodes['fleetc'] = data[1, 'fleetc']
+postcodes['coverp'] = data[1, 'coverp']
+postcodes['powerc'] = data[1, 'powerc']
+preds = predict.gam(gam5, newdata=postcodes, type="terms", terms=s(LAT, LONG))
+
+clustering_df = as.data.frame(cbind(postcodes$LAT, postcodes$LONG, preds[, 7]))
+names(clustering_df) = c("LAT", "LONG", "s_vals")
+```
 
 
+To bin the smoother, I will use Fisher's breaks, as in SAJ-GAM this was the best clustering algorithm for this use case. I will try out 3-10 clusters.
+
+First we need to create the clusterings, and store them in the dataframe *fctr_rslts*.
+```{r}
+fctr_rslts = matrix(nrow=nrow(clustering_df), ncol=18)  # for storage
+for (n_clusters in 3:20) {  # I can turn this to a function, but it's only used once
+  breaks = classIntervals(var=clustering_df$s_vals,
+                          n=n_clusters, style="fisher")$brks  # get cluster breaks
+  
+  idx = n_clusters - 2
+  resulting_clusters = smooth_to_factors(clustering_df,
+                                         breaks,
+                                         on_var="s_vals")$s_vals_binned
+  fctr_rslts[, idx] = resulting_clusters
+}
+fctr_rslts = as.data.frame(fctr_rslts)
+names(fctr_rslts) = paste("x", seq(3, 20), "clusters", sep="")
+fctr_rslts[,"CODPOSS"] = postcodes$CODPOSS
+head(fctr_rslts)
+```
+
+Prepare needed dataframe for below. I want to keep data "clean", so I make a copy of it.
+```{r}
+tmp = merge(data, fctr_rslts, by="CODPOSS", all.x=TRUE, all.y=FALSE)
+for (col in names(tmp)[grepl("clusters", names(tmp))]) {
+  tmp[, col] = as.factor(tmp[, col])
+}
+```
 
 
+Now, we fit a GAM model for every single number of clusters. We first drop the smooth spatial function, then we create a loop where in each loop:
+* We create a specific formula programatically, adding e.g. x7clusters as a covariate.
+* We fit a GAM and store the AIC.
+
+Initially I checked for 3 to 10 clusters. It is not true that increasing the number of clusters necessarily results in lower AIC, but in the initial run the minimum is at 10 clusters. Thus, I decided to expand the search to 20 clusters this time.
+```{r}
+base_formula = update(f5, ~. -S(LAT, LONG, bs="tp") )  # no longer needed
+
+aic_results = rep(0, 18)
+for (n_clusters in 3:20) {
+  # need these to be able to create formulas programatically
+  var = paste("x", n_clusters, "clusters", sep="")
+  tmp_formula = update(base_formula, paste("~ . +", var))  # add as factor
+  
+  idx = n_clusters - 2
+  
+  set.seed(0916778)  # set seed again for easy reproducibility if needed
+  aic_results[idx] = gam(tmp_formula, family=poisson(link="log"),
+                         data=tmp, method="GCV.Cp")$aic
+}
+
+print(aic_results)
+best = which.min(aic_results) + 2
+print(paste("Best is", best, "clusters"))
+```
+
+Now we need to save the best-performing cluster. During subsequent analysis we can simply merge on *CODPOSS* to map postcodes into clusters.
+```{r}
+postcode_to_cluster = fctr_rslts[, c("CODPOSS", "x13clusters")]
+save(postcode_to_cluster, file="../data/postcode_to_cluster.Rda")
+```
 
 
-
-
-
-
+The clustering distribution.
+```{r, echo=FALSE}
+barplot(summary(as.factor(postcode_to_cluster[, "x13clusters"])))
+```
 
 # Binning Severity.
 
