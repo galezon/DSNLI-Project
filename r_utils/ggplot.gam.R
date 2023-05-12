@@ -1,3 +1,4 @@
+# from Dr. Antonio's computer lab
 ggplot.gam <- function(model, variable, gam_term, 
                        xlabel, ylabel){
   pred <- predict(model, type = "terms", se = TRUE)
