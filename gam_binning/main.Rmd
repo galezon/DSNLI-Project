@@ -33,6 +33,8 @@ We will follow SAJ-GAM's approach in firstly using BIC to select the best GAM ca
 
 # Binning Frequency.
 
+The model we end up with is *log(nbrtotc) = log(expo) + agecar + fuelc + split +fleetc + coverp + powerc + s(LAT, LONG) + s(AGEPH)*. The GAM model is called *gam5*.
+
 ## Finding a GAM model for frequency.
 
 Let us try the most obvious one first, with all co-variates but no interaction terms. Note that it makes sense to compare likelihood based model-selection, since we are not altering the responses.
@@ -114,11 +116,11 @@ print(paste("BIC(gam6) = ", BIC(gam6)))
 Taking a look at the smooth functions. Interesting how in the 2d-plot you can see Brussels and Antwerp.
 ```{r, echo=FALSE}
 par(mfrow=c(1, 2))
-plot(gam5)
+plot(gam5, scheme=2)
 ```
 
 
-## Finding the spatial bins.
+## Finding the spatial bins for frequency.
 
 Preparing a dataframe for clustering. Interesting warning.
 ```{r}
@@ -137,13 +139,12 @@ clustering_df = as.data.frame(cbind(postcodes$LAT, postcodes$LONG, preds[, 7]))
 names(clustering_df) = c("LAT", "LONG", "s_vals")
 ```
 
-
-To bin the smoother, I will use Fisher's breaks, as in SAJ-GAM this was the best clustering algorithm for this use case. I will try out 3-10 clusters.
+To bin the smoother, I will use Fisher's breaks, as in SAJ-GAM this was the best clustering algorithm for this use case. I will try out 3-10 clusters (later, it turns out I needed to check up to 20 clusters).
 
 First we need to create the clusterings, and store them in the dataframe *fctr_rslts*.
 ```{r}
 fctr_rslts = matrix(nrow=nrow(clustering_df), ncol=18)  # for storage
-for (n_clusters in 3:20) {  # I can turn this to a function, but it's only used once
+for (n_clusters in 3:20) {  # I can turn this to a function, but it's only used twice
   breaks = classIntervals(var=clustering_df$s_vals,
                           n=n_clusters, style="fisher")$brks  # get cluster breaks
   
@@ -207,9 +208,9 @@ barplot(summary(as.factor(postcode_to_cluster[, "x13clusters"])))
 ```
 
 With 13 bins I ought to take a look at the resulting binning. I made the image directly on the online notebook Dr. Antonio gave us. Looks pretty reasonable I would say, we can clearly see Brussels, Liege and Antwerp. Interesting that though Antwerp is clearly labeled as risky, it is not as risky as Brussels or Liege.
-![postcode_risk_img](../postcode_risk.png)
+![postcode_risk_img](../freq_postcode.png)
 
-## Finding bins for *AGEPH*.
+## Finding bins for *AGEPH* for frequency.
 
 Set up the unique values of *AGEPH* present in the trainset, s(*AGEPH*), and the weights (counts of each age in the trainset).
 ```{r, warning=FALSE}
@@ -246,6 +247,8 @@ tmp = tmp[, c("agecar", "fuelc", "split", "fleetc", "coverp", "powerc",
 We will try this on a rather large grid first, later we will refine the grid. From previous experiments (not included), depths two and three are not interesting. Best alpha is at 150, but let us refine the grid and search for alpha in [130, 170].
 ```{r}
 a_grid = c(seq(5, 50, by=5), seq(60, 100, by=10), seq(150, 600, by=50))
+glm_formula = nbrtotc ~ agecar + fuelc + split + fleetc + coverp + powerc + x13clusters + AGEPH_binned + offset(log(duree))
+
 aic_vals = aic_evtree_alpha_and_depth(gam_preds=age_dat, gam_var='AGEPH', 
                                       alpha_grid=a_grid, tree_formula=s_vals~AGEPH,
                                       glm_trainset=tmp, glm_formula=glm_formula,
@@ -282,22 +285,249 @@ saveRDS(age_df, file="../data/freq_age_bins.Rda")
 
 # Binning Severity.
 
-Now, we just need to repeat the whole process, but for severity. However, we discussed in class that we condition severity on having at least one claim. This subsetting below reflects that.
+Now, we just need to repeat the whole process, but for severity. However, we discussed in class that we condition severity on having at least one claim. This subset-ting below reflects that.
 ```{r}
 sev_data = data[data[, "nbrtotc"] > 0, ]
 nrow(sev_data)
 ```
-We now need to fit in a GAM.
+We now need to fit in a GAM. Note that the model I ended up with is *log(chargtot) = log(expo) + agecar + sexp + fuelc + split + fleetc + sportc + powerc + S(LAT, LONG) + s(AGEPH)*. The final GAM model is called *sev_gam3*.
 
 ## Finding a GAM model for severity.
 
+Though the smooth functions aren't deemed as significant in terms of p-value, we can see from the plots that the two smooth functions can't be dropped. Plenty of candidates to drop, *coverp, usec, fleetc, sportc, powerc*.
+```{r}
+sev_f1 = chargtot ~ offset(log(duree)) + agecar + sexp + fuelc + split + usec + fleetc + sportc + coverp + powerc + s(LAT, LONG, bs="tp") + s(AGEPH, bs="cr")
+sev_gam1 = gam(sev_f1, Gamma(link="log"), data=sev_data)
+summary(sev_gam1)
+print("------------------------------------------------------------------")
+anova(sev_gam1)
+print("------------------------------------------------------------------")
+par(mfrow=c(1, 2))
+plot(sev_gam1, scheme=2)
+```
+
+Let us drop those candidates. Smooth effects definitely need to be kept.
+```{r}
+sev_f2 = update(sev_f1, ~. - coverp - usec - fleetc - sportc - powerc )
+sev_gam2 = gam(sev_f2, Gamma(link="log"), data=sev_data)
+summary(sev_gam2)
+print("------------------------------------------------------------------")
+anova(sev_gam2)
+par(mfrow=c(1, 2))
+plot(sev_gam2, scheme=2)
+```
+
+A quick BIC check. Looks like we dropped too many at once. However, since we only have 11k datapoints, the training of a single GAM model is very quick, so I think we can try stepwise dropping.
+```{r}
+print(paste("BIC(sev_gam1) =", BIC(sev_gam1)))
+print(paste("BIC(sev_gam2) =", BIC(sev_gam2)))
+```
+
+Trying out different variables to drop.
+```{r}
+nocoverp_formula = update(sev_f1, ~. - coverp)
+nousec_formula = update(sev_f1, ~. - usec)
+nofleetc_formula = update(sev_f1, ~. - fleetc)
+nosportc_formula = update(sev_f1, ~. - sportc)
+nopowerc_formula = update(sev_f1, ~. - powerc)
+
+sev_fam = Gamma(link="log")
+nocoverp_gam = gam(nocoverp_formula, sev_fam, sev_data)
+nousec_gam = gam(nousec_formula, sev_fam, sev_data)
+nofleetc_gam = gam(nofleetc_formula, sev_fam, sev_data)
+nosportc_gam = gam(nosportc_formula, sev_fam, sev_data)
+nopowerc_gam = gam(nopowerc_formula, sev_fam, sev_data)
+```
 
 
+BIC(sev_gam1) is 234900, so *coverp* and *usec* are candidates to drop.
+```{r}
+print(paste("BIC(nocoverp_gam) =", BIC(nocoverp_gam)))
+print(paste("BIC(nousec_gam) =", BIC(nousec_gam)))
+print(paste("BIC(nofleetc_gam) =", BIC(nofleetc_gam)))
+print(paste("BIC(nosportc_gam) =", BIC(nosportc_gam)))
+print(paste("BIC(nopowerc_gam) =", BIC(nopowerc_gam)))
+```
+
+Let us try dropping *usec* and *coverp*. I tried dropping more variables, but I couldn't find anything better in terms of BIC. The coefficients below are pretty significant, including the smooth effects.
+```{r, warning=FALSE}
+sev_f3 = update(sev_f1, ~. - usec - coverp)
+sev_gam3 = gam(sev_f3, sev_fam, data=sev_data)
+summary(sev_gam3)
+print("------------------------------------------------------------------")
+anova(sev_gam3)
+print("------------------------------------------------------------------")
+print(paste("BIC(nocoverp_gam) =", BIC(nocoverp_gam)))
+print(paste("BIC(nousec_gam) =", BIC(nousec_gam)))
+print(paste("BIC(sev_gam3) =", BIC(sev_gam3)))
+par(mfrow=c(1, 2))
+plot(sev_gam3, scheme=2)
+```
+
+## Finding the spatial bins for severity. 
+
+The codes in this subsection would almost be the exact same as the one for frequency.
+```{r, warning=FALSE}
+# ensuring all co-variates used in formulas are present
+postcodes['duree'] = data[1, 'duree']
+postcodes['AGEPH'] = data[1, 'AGEPH']
+postcodes['agecar'] = data[1, 'agecar']
+postcodes['sexp'] = data[1, 'sexp']
+postcodes['fuelc'] = data[1, 'fuelc']
+postcodes['split'] = data[1, 'split']
+postcodes['fleetc'] = data[1, 'fleetc']
+postcodes['sportc'] = data[1, 'sportc']
+postcodes['powerc'] = data[1, 'powerc']
+sev_preds = predict.gam(sev_gam3, newdata=postcodes, type="terms", terms=s(LAT, LONG))
+
+sev_clustering_df = as.data.frame(cbind(postcodes$LAT, postcodes$LONG, sev_preds[, 8]))
+names(sev_clustering_df) = c("LAT", "LONG", "s_vals")
+
+# -----------------------------------------------------------------------------------------------
+
+sev_fctr_rslts = matrix(nrow=nrow(sev_clustering_df), ncol=18)  # for storage
+for (n_clusters in 3:20) {  
+  breaks = classIntervals(var=sev_clustering_df$s_vals,
+                          n=n_clusters, style="fisher")$brks  # get cluster breaks
+  
+  idx = n_clusters - 2
+  resulting_clusters = smooth_to_factors(sev_clustering_df,
+                                         breaks,
+                                         on_var="s_vals")$s_vals_binned
+  sev_fctr_rslts[, idx] = resulting_clusters
+}
+sev_fctr_rslts = as.data.frame(sev_fctr_rslts)
+names(sev_fctr_rslts) = paste("x", seq(3, 20), "clusters", sep="")
+sev_fctr_rslts[,"CODPOSS"] = postcodes$CODPOSS
+
+# -----------------------------------------------------------------------------------------------
+
+sev_tmp = merge(sev_data, sev_fctr_rslts, by="CODPOSS", all.x=TRUE, all.y=FALSE)
+for (col in names(sev_tmp)[grepl("clusters", names(sev_tmp))]) {
+  sev_tmp[, col] = as.factor(sev_tmp[, col])
+}
+```
 
 
+GAM re-fitting, choice via AIC.
+```{r}
+sev_base_formula = update(sev_f3, ~. -S(LAT, LONG, bs="tp") )  # no longer needed
+
+sev_aic_results = rep(0, 18)
+for (n_clusters in 3:20) {
+  # need these to be able to create formulas programatically
+  var = paste("x", n_clusters, "clusters", sep="")
+  tmp_formula = update(sev_base_formula, paste("~ . +", var))  # add as factor
+  
+  idx = n_clusters - 2
+  
+  set.seed(0916778)  # set seed again for easy reproducibility if needed
+  sev_aic_results[idx] = gam(tmp_formula, family=sev_fam,
+                         data=sev_tmp, method="GCV.Cp")$aic
+}
+
+print(sev_aic_results)
+best = which.min(sev_aic_results) + 2
+print(paste("Best is", best, "clusters"))
+```
+
+Seems like penalizing via AIC is not strong enough, so let us see with BIC instead. In hindsight, I should've stored every GAM model once fitted, then I can simply run BIC() over the stored models. 
+```{r}
+sev_bic_results = rep(0, 18)
+for (n_clusters in 3:20) {
+  # need these to be able to create formulas programatically
+  var = paste("x", n_clusters, "clusters", sep="")
+  tmp_formula = update(sev_base_formula, paste("~ . +", var))  # add as factor
+  
+  idx = n_clusters - 2
+  
+  set.seed(0916778)  # set seed again for easy reproducibility if needed
+  sev_bic_results[idx] = BIC(gam(tmp_formula, family=sev_fam,
+                         data=sev_tmp, method="GCV.Cp"))
+}
+
+print(sev_bic_results)
+best = which.min(sev_bic_results) + 2
+print(paste("Best is", best, "clusters"))
+
+```
+
+Even with BIC, the best is 19 clusters. I'm not willing to work with that many clusters, so I think I will limit the search into 10 clusters only. In reflection I should've realized this as well for the frequency gathering (imposing a strict "I want x many clusters maximum"), but alas, I'd rather not go back there.
+
+With that said, the best is with 4 clusters only.
+```{r}
+which.min(sev_bic_results[1:8]) + 2
+```
+
+Distribution of the clustering.
+```{r, echo=FALSE}
+sev_postcode_to_cluster = sev_fctr_rslts[, c("CODPOSS", "x4clusters")]
+saveRDS(sev_postcode_to_cluster, file="../data/sev_postcode_bins.Rda")
+
+barplot(summary(as.factor(sev_postcode_to_cluster[, "x4clusters"])))
+```
+
+And here is the result of the spatial clustering for severity. A darker shade indicates higher risk.
+![Severity spatial binning visualized.](../sev_postcode.png)
+
+## Finding bins for *AGEPH* for severity
+
+Again, the code would for the most part be the same as for frequency.
+```{r, warning=FALSE}
+sev_age_dat = data.frame(AGEPH=unique(sev_data[, "AGEPH"]))
+
+# ensuring all co-variates are present
+sev_age_dat['duree'] = data[1, 'duree']
+sev_age_dat['sexp'] = data[1, 'sexp']
+sev_age_dat['agecar'] = data[1, 'agecar']
+sev_age_dat['fuelc'] = data[1, 'fuelc']
+sev_age_dat['split'] = data[1, 'split']
+sev_age_dat['fleetc'] = data[1, 'fleetc']
+sev_age_dat['sportc'] = data[1, 'sportc']
+sev_age_dat['powerc'] = data[1, 'powerc']
+sev_age_dat['LAT'] = 1
+sev_age_dat['LONG'] = 1
+
+preds = as.data.frame(predict.gam(sev_gam3, sev_age_dat, type="terms", terms=s(AGEPH)))
+sev_age_dat[, "s_vals"] = preds[, "s(AGEPH)"]
+sev_age_dat = sev_age_dat[, c("AGEPH", "s_vals")]
+
+# freqs
+freqs = plyr::count(as.factor(sev_data[, "AGEPH"]))
+colnames(freqs) = c("AGEPH", "Weights")
+sev_age_dat = merge(sev_age_dat, freqs, by="AGEPH", all.y=FALSE, all.x=TRUE)
+
+sev_tmp = sev_tmp[, c("agecar", "sexp", "fuelc", "split", "fleetc", "sportc", "powerc",
+              "x4clusters", "duree", "AGEPH", "chargtot")]
+```
 
 
+Trying evtree binning on a large grid. Looks like *alpha* values between 15-45, *depth*=4 would be ideal, with the exact best being 25. Since this part of the grid is only a jump of 5 each, I won't re-partition the grid any further. Thus, I'll set *alpha* as 25.
+```{r}
+sev_glm_formula = chargtot~ agecar + sexp + fuelc + split + fleetc + sportc + powerc + x4clusters + AGEPH_binned + offset(log(duree))
 
+a_grid = c(seq(5, 50, by=5), seq(60, 100, by=10), seq(150, 600, by=50))
+sev_aic_vals = aic_evtree_alpha_and_depth(gam_preds=sev_age_dat, gam_var='AGEPH', 
+                                      alpha_grid=a_grid, tree_formula=s_vals~AGEPH,
+                                      glm_trainset=sev_tmp, glm_formula=sev_glm_formula,
+                                      glm_family=sev_fam, max_depth=c(2, 3, 4))
+sev_aic_vals
+```
+
+Saving the results.
+```{r}
+set.seed(0916778)
+
+ctrl = evtree.control(minbucket=0.05*nrow(sev_age_dat), maxdepth=4, alpha=25,
+                      niterations=20000, ntrees=200)
+tmp_tree = evtree(formula=s_vals~AGEPH, data=sev_age_dat, weights=Weights, control=ctrl)
+splits = splits_evtree(tmp_tree, sev_age_dat[, "AGEPH"], sev_data[, "AGEPH"])
+
+sev_age_df = data.frame("AGEPH"=seq(17, 100))
+sev_age_df = smooth_to_factors(age_df, splits, on_var="AGEPH")
+
+saveRDS(sev_age_df, file="../data/sev_age_bins.Rda")
+```
 
 
 
