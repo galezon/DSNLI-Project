@@ -2,9 +2,9 @@
 Project for Data Science and Non-life insurance class by Dr. Antonio, where I follow [1]. Ultimately I chose to do GLM+GAM and one of the trees.
 
 Throughout this project there are several notebooks, each represents a task that I had to do to complete the project. In each task-related subfolders, there is a file called *main* where I completed the task. You should read the *main* notebooks of each task-related subfolder in this order:
-    * data_exploration
-    * gam_binning
-    * GLM
+  * data_exploration
+  * gam_binning
+  * GLM
 
 
 References:
