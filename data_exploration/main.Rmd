@@ -153,13 +153,6 @@ plot2 = plot2 + labs(x="Age of policy holder", y="Number of claims", title="leve
 grid.arrange(plot1, plot2, ncol=2)
 ```
 
-Furthermore, these GLM diagnostic plots suggest a lack of fit. While I do not know the proper distributions for a logistic regression (or other families), it's pretty easy to see that there should be multiple levels in the data. We can see that there are at least 4 different levels.
-```{r}
-par(mfrow=c(1, 2))
-plot(poi_reg, which=3)
-plot(poi_reg, which=5)
-```
-
 Save the processed train data.
 ```{r}
 save(data, file="../data/train.Rda")
