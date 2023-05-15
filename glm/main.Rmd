@@ -21,7 +21,7 @@ data = load_data_post_binning("../data/train.csv")
 ```
 
 
-Now that all possible co-variates are factors, we will try to build the GLM. We will try to see (Poisson, over-dispersed Poisson, negative binomial) for frequency, and (gamma, logNormal) for severity.
+Now that all possible co-variates are factors, we will try to build the GLM. We will try to see (Poisson, over-dispersed Poisson, negative binomial) for frequency, and (gamma, logNormal) for severity. I now realized that I should have made a strict restriction on the number of bins, 16 for *AGEPH* is too much, and thus I don't want to consider interaction effects between *AGEPH* and other co-variates.
 
 # Finding a GLM model for frequency.
 
@@ -209,6 +209,187 @@ BIC_vals2[BIC_vals2 <= BIC(models[[3]])]
 Save the NB model.
 ```{r}
 saveRDS(models[[3]], file="../models/freq_glm_nb.Rda")
+```
+
+
+# Finding a GLM model for Severity.
+
+Condition on nbrtotc > 0.
+```{r}
+sev_data = data %>%
+  filter(nbrtotc > 0) %>%
+  mutate(avg_claim = chargtot/nbrtotc)
+```
+
+
+## Check for interaction effects.
+
+Same function as before, re-tooled.
+```{r}
+see_interaction2 = function(var1, var2, sev_data) { # !!as.symbol(var) is needed
+
+  agg_data =  sev_data %>%
+                dplyr::select(!!as.symbol(var1), !!as.symbol(var2), avg_claim) %>%
+                group_by(!!as.symbol(var1), !!as.symbol(var2)) %>%
+                summarize(avg_avg_claims = mean(avg_claim))
+  
+  plot1 = ggplot(agg_data, aes(fill=get(var1), y=avg_avg_claims, x=get(var2))) + 
+    geom_bar(position="dodge", stat="identity") + labs(x=var2) + labs(fill=var1)
+  
+  plot2 = ggplot(agg_data, aes(fill=get(var2), y=avg_avg_claims, x=get(var1))) + 
+    geom_bar(position="dodge", stat="identity") + labs(x=var1) + labs(fill=var2)
+  
+  gridExtra::grid.arrange(plot1, plot2, ncol=2)
+}
+```
+
+Checking possible interactions. I will only include interaction terms that I tag as a "Yes!" below.
+```{r}
+see_interaction2("agecar", "fleetc", sev_data)  # Not rly
+see_interaction2("usec", "fleetc", sev_data)  # Yes!
+see_interaction2("agecar", "usec", sev_data)  # Mild
+see_interaction2("sexp", "powerc", sev_data)  # Yes!
+see_interaction2("sexp", "sportc", sev_data)  # No
+see_interaction2("split", "sportc", sev_data)  # Yes!
+see_interaction2("split", "powerc", sev_data)  # Yes!
+```
+
+## Gamma GLM.
+
+I'm getting divergence errors, not enough data?
+
+> That error message and the warning indicate that the algorithm
+> (iteratively reweighted least squares or IRLS) for fitting the
+> parameters cannot converge, which can be because the model is
+> over-specified.
+> https://stat.ethz.ch/pipermail/r-help/2009-December/416122.html
+
+```{r}
+sev_full_formula = avg_claim ~ agecar + sexp + fuelc + split + usec + fleetc + sportc + coverp + powerc + sev_AGEPH + sev_codposs + usec:fleetc + sexp:powerc + split:powerc + split:sportc
+
+sev_fam = Gamma(link="log")
+sev_full_glm = glm(sev_full_formula, sev_fam, sev_data)
+
+summary(sev_full_gm, test="Chisq")
+```
+
+Now it converges, and we have many variables to drop. *AGEPH* is deemed not significant (Wald-test), since this is 8 levels I will drop this first.
+```{r}
+sev_formula = avg_claim ~ agecar + sexp + fuelc + split + usec + fleetc + sportc + coverp + powerc + sev_AGEPH + sev_codposs
+
+sev_glm = glm(sev_formula, sev_fam, sev_data)
+
+summary(sev_glm)
+```
+
+Dropping *AGEPH*. Borderline. Check BIC.
+```{r}
+sev_f1 = update(sev_formula, ~. - sev_AGEPH)
+sev_glm1 = glm(sev_f1, sev_fam, sev_data)
+
+anova(sev_glm1, sev_glm, test="Chisq")
+```
+
+So, we can't drop *AGEPH*.
+```{r}
+BIC(sev_glm) - BIC(sev_glm1)
+```
+
+Mass-search to see what is drop-able. Between the powerset of *agecar*, *sportc*, *fleetc*, *usec*, we will consider every single combination.
+```{r}
+sev_vars = c("agecar", "sportc", "fleetc", "usec")
+formulas_list = powerset_formula(sev_vars, sev_formula, operation="-")
+
+sev_models = list()
+sev_BIC_vals = rep(0, length(formulas_list))
+for (idx in 1:length(formulas_list)) {
+  tmp_formula = formulas_list[[idx]]
+  tmp_glm = glm(tmp_formula, sev_fam, sev_data)
+  
+  sev_models[[idx]] = tmp_glm
+  sev_BIC_vals[idx] = BIC(tmp_glm)
+}
+
+
+ref_BIC = BIC(sev_glm)
+which(sev_BIC_vals < ref_BIC)
+```
+
+We can drop *usec* and *sportc*.
+```{r}
+sev_mass_glm1 = sev_models[[8]]
+sev_mass_glm2 = sev_models[[10]]
+
+anova(sev_mass_glm1,sev_glm, test="Chisq")  # no usec
+anova(sev_mass_glm2,sev_glm, test="Chisq")  # no usec and sportc
+```
+
+I did further analysis and we can also drop *coverp* and *powerc*.
+```{r}
+sev_f2 = update(sev_formula, ~. - usec - sportc - coverp - powerc)
+sev_glm2 = glm(sev_f2, sev_fam, sev_data)
+summary(sev_glm2)
+```
+
+We explore all possible combinations of dropping *agecar*, *sexp*, and *fleetc*. As it turns out, we can drop all three if we trust on drop-in-deviance test and ignore BIC values. I will do that, my only justification is that I prefer the model-specific test compared to the model agnostic one.
+```{r}
+sev_vars2 = c("agecar", "sexp", "fleetc")
+formulas_list2 = powerset_formula(sev_vars2, sev_f2, operation="-")
+
+sev_models2 = list()
+sev_BIC_vals2 = rep(0, length(formulas_list2))
+for (idx in 1:length(formulas_list2)) {
+  print(paste("---------------IDX=", idx, "---------------"))
+  tmp_formula = formulas_list2[[idx]]
+  tmp_glm = glm(tmp_formula, sev_fam, sev_data)
+  
+  sev_models2[[idx]] = tmp_glm
+  sev_BIC_vals2[idx] = BIC(tmp_glm)
+  
+  print(anova(tmp_glm, sev_glm2, test="Chisq"))
+  print("------------------------------------------------------")
+}
+
+
+ref_BIC2 = BIC(sev_glm2)
+which(sev_BIC_vals2 < ref_BIC2)
+```
+
+Curious if we can drop *AGEPH*.
+```{r}
+sev_f3 = update(sev_f2, ~. - sexp - fleetc - agecar)
+sev_glm3 = glm(sev_f3, sev_fam, sev_data)
+
+summary(sev_glm3)
+```
+
+Checking once more if we can drop *AGEPH*. BIC says no, but drop-in-deviance is borderline. Perhaps a visual aid?
+```{r}
+sev_f4 = update(sev_f3, ~. -sev_AGEPH)
+sev_glm4 = glm(sev_f4, sev_fam, sev_data)
+
+BIC(sev_glm4) - BIC(sev_glm3)
+print("---------------------------------------------------------------------")
+anova(sev_glm4, sev_glm3, test="Chisq")
+print("---------------------------------------------------------------------")
+summary(sev_glm4)
+```
+
+Final decision on to drop *AGEPH* or not. Looks like there are some difference. I decided not to drop *AGEPH*.
+```{r}
+q = sev_data %>%
+  dplyr::select(sev_AGEPH, avg_claim) %>%
+  group_by(sev_AGEPH) %>%
+  summarize(avg_avg_claim = mean(avg_claim))
+
+ggplot(data=q, aes(x=sev_AGEPH, y=avg_avg_claim)) +
+  geom_bar(stat="identity")
+  
+```
+
+Save our model.
+```{r}
+# saveRDS(sev_glm3, file="../models/sev_glm_gamma.Rda")
 ```
 
 
