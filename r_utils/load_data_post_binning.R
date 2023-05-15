@@ -1,7 +1,7 @@
 load_data_post_binning = function(data_path) {
   data = read.csv(data_path, header=TRUE)
   freq_age_bins = readRDS("../data/freq_age_bins.Rda")
-  sev_age_bins = readRDS("../data/sev_age_bins.Rda")
+  sev_age_bins = readRDS("../data/sev_age_bins_corrected.Rda")  # decreased number of bins
   freq_postcode_bins = readRDS("../data/freq_postcode_bins.Rda")
   sev_postcode_bins = readRDS("../data/sev_postcode_bins.Rda")
   
@@ -44,7 +44,7 @@ load_data_post_binning = function(data_path) {
   data = within(data, freq_codposs<-relevel(freq_codposs, ref="Class 9"))
   data = within(data, freq_AGEPH<-relevel(freq_AGEPH, ref="Class 10"))
   data = within(data, sev_codposs<-relevel(sev_codposs, ref="Class 3"))
-  data = within(data, sev_AGEPH<-relevel(sev_AGEPH, ref="Class 16"))
+  data = within(data, sev_AGEPH<-relevel(sev_AGEPH, ref="Class 8"))
   
   return(data)
 }

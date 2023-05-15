@@ -23,6 +23,12 @@ data = load_data_post_binning("../data/train.csv")
 
 Now that all possible co-variates are factors, we will try to build the GLM. We will try to see (Poisson, over-dispersed Poisson, negative binomial) for frequency, and (gamma, logNormal) for severity. I now realized that I should have made a strict restriction on the number of bins, 16 for *AGEPH* is too much, and thus I don't want to consider interaction effects between *AGEPH* and other co-variates.
 
+As a spoiler, here are the chosen models:
+  * Poisson GLM (freq): log(nbrtotc) ~ agecar + sexp + fuelc + split + fleetc + coverp + powerc + 
+    freq_codposs + freq_AGEPH + offset(log(duree))
+  * NegBinom GLM (freq): log(nbrtotc) ~ agecar + fuelc + split + coverp + powerc + freq_codposs + freq_AGEPH
+  * Gamma GLM (sev): log(avg_claim) ~ fuelc + split + sev_AGEPH + sev_codposs
+
 # Finding a GLM model for frequency.
 
 ## Checking (subjective) candidates for interactions
