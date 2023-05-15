@@ -9,7 +9,7 @@ load_data_post_binning = function(data_path) {
   data = merge(data, freq_postcode_bins, by="CODPOSS", all.x=TRUE, all.y=FALSE)
   data = merge(data, sev_postcode_bins, by="CODPOSS", all.x=TRUE, all.y=FALSE)
   
-  # rename x13clusters and x4clusters, and X (the index actually)
+  # rename x13clusters and x5clusters, and X (the index actually)
   names(data)[names(data) == "X"] = "policy_id"
   names(data)[names(data) == "x5clusters"] = "sev_codposs"
   names(data)[names(data) == "x13clusters"] = "freq_codposs"

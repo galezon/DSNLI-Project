@@ -1,0 +1,225 @@
+---
+title: "GLM after binning."
+output: html_notebook
+---
+
+Load libraries, custom functions, required data.
+```{r, warning=FALSE}
+library(ggplot2)
+library(dplyr)
+library(MASS)
+
+source("../r_utils/load_data_post_binning.R")
+source("../r_utils/summarize_obj.R")
+source("../r_utils/powerset.R")
+```
+
+
+Read all required data.
+```{r}
+data = load_data_post_binning("../data/train.csv")
+```
+
+
+Now that all possible co-variates are factors, we will try to build the GLM. We will try to see (Poisson, over-dispersed Poisson, negative binomial) for frequency, and (gamma, logNormal) for severity.
+
+# Finding a GLM model for frequency.
+
+## Checking (subjective) candidates for interactions
+
+
+A short aggregating function that gives us a plot allowing us to check for the presence of interaction effects.
+```{r, warning=FALSE}
+
+see_interaction = function(var1, var2, data) { # !!as.symbol(var) is needed
+
+  agg_data =  data %>%
+                dplyr::select(!!as.symbol(var1), !!as.symbol(var2), duree, nbrtotc) %>%
+                group_by(!!as.symbol(var1), !!as.symbol(var2)) %>%
+                summarize(total_claims = sum(nbrtotc), total_expo = sum(duree)) %>%
+                ungroup() %>%
+                mutate(claims_per_expo = total_claims/total_expo)
+  plot1 = ggplot(agg_data, aes(fill=get(var1), y=claims_per_expo, x=get(var2))) + 
+    geom_bar(position="dodge", stat="identity") + labs(x=var2) + labs(fill=var1)
+  
+  plot2 = ggplot(agg_data, aes(fill=get(var2), y=claims_per_expo, x=get(var1))) + 
+    geom_bar(position="dodge", stat="identity") + labs(x=var1) + labs(fill=var2)
+  
+  gridExtra::grid.arrange(plot1, plot2, ncol=2)
+}
+```
+
+Possible interaction effects.
+```{r, warning=FALSE, echo=FALSE, results='hide',fig.keep='all'}
+see_interaction("agecar", "fleetc", data)  # Interaction!
+see_interaction("usec", "fleetc", data)  # No interaction!
+see_interaction("agecar", "usec", data)  # Changes in >10 years, interesting
+see_interaction("sexp", "powerc", data)  # Mild Definite interaction
+see_interaction("sexp", "sportc", data)  # Mild interaction!
+see_interaction("split", "sportc", data)  # Interaction!
+see_interaction("split", "powerc", data)  # Slight interaction
+```
+
+
+## Poisson GLM
+
+One should immediately.
+```{r}
+full_formula = nbrtotc ~ offset(log(duree)) + agecar + sexp + fuelc + split + usec + fleetc + sportc + coverp + powerc + freq_codposs + freq_AGEPH
+
+# adding interaction effects, we only drop variables backwards from here
+full_int_formula = update(full_formula, ~. + agecar*fleetc + usec*fleetc + agecar*usec + sexp*powerc + sexp*sportc + split*sportc + split*powerc)
+
+freq_fam = poisson(link="log")
+
+set.seed(0916778)
+full_glm = glm(full_formula, family=freq_fam, data=data)
+
+set.seed(0916778)
+full_int_glm = glm(full_int_formula, freq_fam, data)
+```
+
+Let's see the result of these interaction terms. I will try dropping *usec*, and keep the idea that if we don't use the main effect then we shouldn't use the interaction either (meaning I will also drop *usec:fleetc* and *usec:agecar*).
+```{r}
+anova(full_int_glm, test="Chisq")
+```
+
+Let us try dropping the interaction effect *split:powerc*.
+```{r}
+freq_f1 = update(full_int_formula, ~. - usec - usec:fleetc - usec:agecar)
+freq_glm1 = glm(freq_f1, family=freq_fam, data=data)
+anova(freq_glm1, test="Chisq")
+```
+
+Looks like we should drop the *split:powerc* indeed. I also the liberty to check ahead for *sexp:sportc*, *agecar:fleetc* and *sexp:powerc* and we should drop them.
+```{r}
+freq_f2 = update(freq_f1, ~. - split:powerc - sexp:sportc - agecar:fleetc - sexp:powerc)
+freq_glm2 = glm(freq_f2, freq_fam, data)
+anova(freq_glm2, freq_glm1, test="Chisq")
+```
+
+What else can be dropped? If we try to drop *split:sportc*, the drop in deviance rejects the null. Let us switch to BIC.
+```{r}
+anova(freq_glm2, test="Chisq")
+print("-------------------------------------------------------------------")
+BIC(freq_glm2)
+```
+
+The BIC is actually smaller though. So, let us just drop it.
+```{r}
+freq_f3 = update(freq_f2, ~. - split:sportc)
+freq_glm3 = glm(freq_f3, freq_fam, data)
+BIC(freq_glm3) - BIC(freq_glm2)
+```
+
+Interesting point, the anova calls adds terms sequentially. If the terms are added as in the order in ANOVA, then adding *sportc* is deemed very important. However, in the full summary, the Wald-test (coefficient of *sportc* being 0 or alternative) says that *sportc* is not important at all!
+```{r}
+anova(freq_glm3, test="Chisq")
+print("------------------------------------------------------------------")
+summary(freq_glm3)
+```
+
+In fact, we can verify below. The null is nowhere even close to being rejected!
+```{r}
+freq_f4 = update(freq_f3, ~. - sportc)
+freq_glm4 = glm(freq_f4, freq_fam, data)
+anova(freq_glm4, freq_glm3, test="Chisq")
+```
+
+It seems like I should trust the Wald-test in the summary more than I should trust the p-values of adding terms one-by-one (what anova does). In that spirit, I can perhaps join together some categoricals, for example: joining together some postcodes. However I won't do that. I am also happy enough with the current frequency glm.
+```{r}
+summary(freq_glm4)
+```
+
+Let us now save the model. I might build several different GLMs for frequency and severity, and later try each combination on the validation set that we separated in the beginning.
+```{r}
+# saveRDS(freq_glm4, file="../models/freq_glm_poisson.Rda")
+```
+
+Residual plots. I can only say something about pearson residuals vs fitted. Despite the title of the first plot, the plot is actually of pearson residuals vs log of fitted values (does predicted values mean the linear predictions?). Since this is Poisson, we expect that as fitted value increases, the variance (and thus the residual) grows. However, we can see here that for small log(fitted values), the variance is very large, thus indicating over-dispersion.
+```{r}
+par(mfrow=c(2, 2))
+plot(freq_glm4)
+```
+
+To see that again. One can clearly see that between 0.0-0.1 the variance is very large. 
+```{r}
+plot(cbind(freq_glm4$fitted.values, residuals(freq_glm4, type="pearson")),
+     xlab="Fitted Values", ylab="Pearson Residuals")
+abline(0, 1)  # should be a cone with center being this line, if variance
+              # is indeed equal to mean (fitted value)
+```
+
+To once more confirm over-dispersion. However, even if I build an 
+```{r}
+sum(residuals(freq_glm4, type="pearson")^2)/freq_glm4$df.residual
+```
+
+## Negative Binomial GLM.
+
+This is the model that I'm happy with, using only drop-in-deviance tests.
+```{r}
+nb_formula = update(full_int_formula, ~. - usec - usec:fleetc - usec:agecar - sportc - sportc:sexp - sportc:split -agecar:fleetc - split:powerc -sexp:powerc)
+
+nbfreq_glm = glm.nb(nb_formula, data)
+```
+
+Last try with BIC. Improvement, actually.
+```{r}
+vars = c("sexp", "fleetc")
+formulas = powerset_formula(vars, nb_formula, operation="-")
+
+models = list()
+BIC_vals = rep(0, length(formulas))
+for (idx in 1:length(formulas)) {
+  tmp_formula = formulas[[idx]]
+  tmp_glm = glm.nb(tmp_formula, data)
+  BIC_vals[idx] = BIC(tmp_glm)
+  models[[idx]] = tmp_glm
+}
+
+print(BIC(nbfreq_glm))  # reference value
+print(BIC_vals)
+```
+
+Check the best formula so far.
+```{r}
+nb_formula2 = formulas[[3]]
+nb_formula2
+```
+
+Only 32 models, we can mass-search with BIC. None turns out better in terms of BIC.
+```{r}
+vars2 = c("agecar", "fuelc", "split", "coverp", "powerc")
+formulas2 = powerset_formula(vars2, nb_formula2, operation="-")
+
+models2 = list()
+BIC_vals2 = rep(0, length(formulas2))
+for (idx in 1:length(formulas2)) {
+  tmp_formula = formulas2[[idx]]
+  tmp_glm = glm.nb(tmp_formula, data)
+  BIC_vals2[idx] = BIC(tmp_glm)
+  models2[[idx]] = tmp_glm
+}
+
+print(BIC(models[[3]]))  # reference value
+BIC_vals2[BIC_vals2 <= BIC(models[[3]])]
+```
+
+Save the NB model.
+```{r}
+saveRDS(models[[3]], file="../models/freq_glm_nb.Rda")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
