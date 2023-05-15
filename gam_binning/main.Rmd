@@ -489,6 +489,8 @@ sev_tmp = sev_tmp[, c("agecar", "sexp", "fuelc", "split", "fleetc", "sportc",
 
 
 Trying evtree binning on a large grid. Looks like *alpha* values between 30-45, *depth*=4 would be ideal, with the exact best being 30. Since this part of the grid is only a jump of 5 each, I won't re-partition the grid any further. Thus, I'll set *alpha* as 30.
+
+UPDATE: When I tried to run the GLM, I'm encountering convergence issues. I suspect I have too many partitions for *AGEPH*, so I will limit the depth to 3, a maximum of 8 splits. In this case, the best *alpha* values are between [5, 60]. The similar values most definitely suggest an issue, so I increased the number of trees and iterations, and will re-search for depth=3, *alpha* in [5, 60]
 ```{r}
 sev_glm_formula = avg_claim ~ agecar + sexp + fuelc + split + fleetc + sportc + x5clusters + AGEPH_binned + offset(log(duree))
 
@@ -496,23 +498,34 @@ a_grid = c(seq(5, 50, by=5), seq(60, 100, by=10), seq(150, 600, by=50))
 sev_aic_vals = aic_evtree_alpha_and_depth(gam_preds=sev_age_dat, gam_var='AGEPH', 
                                       alpha_grid=a_grid, tree_formula=s_vals~AGEPH,
                                       glm_trainset=sev_tmp, glm_formula=sev_glm_formula,
-                                      glm_family=sev_fam, max_depth=c(2, 3, 4))
+                                      glm_family=sev_fam, max_depth=c(2, 3))
 sev_aic_vals
+
+#------------------------------------------------------------------------------------------
+# UPDATED, after non-convergence of Gamma GLM. Convergence issues for the depth already found?
+# I don't know enough about evtree.
+a_grid = seq(5, 60, by=5)
+sev_aic_vals2 = aic_evtree_alpha_and_depth2(gam_preds=sev_age_dat, gam_var='AGEPH', 
+                                      alpha_grid=a_grid, tree_formula=s_vals~AGEPH,
+                                      glm_trainset=sev_tmp, glm_formula=sev_glm_formula,
+                                      glm_family=sev_fam, max_depth=c(3))
+sev_aic_vals2
 ```
 
 Saving the results.
+Update: I set *alpha*=50, *depth*=3
 ```{r}
 set.seed(0916778)
 
-ctrl = evtree.control(minbucket=0.05*nrow(sev_age_dat), maxdepth=4, alpha=10,
-                      niterations=20000, ntrees=200)
+ctrl = evtree.control(minbucket=0.05*nrow(sev_age_dat), maxdepth=3, alpha=50,
+                      niterations=30000, ntrees=400)
 tmp_tree = evtree(formula=s_vals~AGEPH, data=sev_age_dat, weights=Weights, control=ctrl)
 splits = splits_evtree(tmp_tree, sev_age_dat[, "AGEPH"], sev_data[, "AGEPH"])
 
 sev_age_df = data.frame("AGEPH"=seq(17, 100))
 sev_age_df = smooth_to_factors(sev_age_df, splits, on_var="AGEPH")
 
-saveRDS(sev_age_df, file="../data/sev_age_bins.Rda")
+saveRDS(sev_age_df, file="../data/sev_age_bins_corrected.Rda")
 ```
 
 
