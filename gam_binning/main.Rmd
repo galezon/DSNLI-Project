@@ -21,6 +21,8 @@ postcodes = read_xls("../initial_docs/inspost.xls")
 source("../r_utils/smooth_to_factors.r")
 source("../r_utils/splits_evtree.r")
 source("../r_utils/aic_evtree_alpha_and_depth.r")
+source("../r_utils/summarize_obj.R")
+source("../r_utils/powerset.R")
 ```
 
 The goal of this notebook is to bin our only continuous variable AGEPH, and to bin the spatial effects (Lon, Lat). As my main model will be the GLM, we will not focus too much on inference of the GAM models of this notebook. Rather, we will simply try to find the best model, then bin it.
@@ -69,7 +71,7 @@ print(paste("AIC of TE(spatial) = ", round(gam3$aic, 1)))
 print(paste("Difference in BIC between cubic and thin-plate = ", round((gam1$aic - gam2$aic)*log(dim(data)[1])/2, 3)))
 ```
 
-We haven't actually analyze the result of the GAM. Not much we can say about the smooth functions, since we do need them. On the other hand, it seems like *usec* and *sportc* can be dropped.
+We haven't actually analyze the result of the GAM. Not much we can say about the smooth functions, since the goal is to bin them. On the other hand, it seems like *usec* and *sportc* can be dropped.
 ```{r}
 summary(gam1)
 ```
@@ -296,33 +298,55 @@ I made a mistake and deleted *nbrtotan* (the average of claim amount, if any), s
 sev_data[, "avg_claim"] = sev_data[, "chargtot"] / sev_data[, "nbrtotc"]
 ```
 
-We now need to fit in a GAM. Note that the model I ended up with is *log(avg_claim) = log(expo) + agecar + sexp + fuelc + split + fleetc + sportc + S(LAT, LONG) + s(AGEPH)*. The final GAM model is called *sev_gam2*.
+We now need to fit in a GAM. Note that the model I ended up with is *log(avg_claim) = usec + agecar + sexp + fuelc + split + fleetc + sportc + S(LAT, LONG) + s(AGEPH)*. The final GAM model is called *sev_gam2*.
 
 ## Finding a GAM model for severity.
 
 Though the smooth functions aren't deemed as significant in terms of p-value, we can see from the plots that the two smooth functions can't be dropped. Plenty of candidates to drop, *coverp, usec, fleetc, sportc, powerc*.
 ```{r}
-sev_f1 = avg_claim ~ offset(log(duree)) + agecar + sexp + fuelc + split + usec + fleetc + sportc + coverp + powerc + s(LAT, LONG, bs="tp") + s(AGEPH, bs="cr")
+sev_f1 = avg_claim ~ agecar + sexp + fuelc + split + usec + fleetc + sportc + coverp + powerc + s(LAT, LONG, bs="tp") + s(AGEPH, bs="cr")
 sev_fam = Gamma(link="log")
 sev_gam1 = gam(sev_f1, sev_fam, data=sev_data)
 
-summary(sev_gam1)
-print("------------------------------------------------------------------")
-anova(sev_gam1)
-print("------------------------------------------------------------------")
+summarize_obj(sev_gam1)
 par(mfrow=c(1, 2))
 plot(sev_gam1, scheme=2)
 ```
 
-After trying out various models by myself, I decided to drop *usec*, *coverp*, and *powerc*.
+After trying a few models, I decided to drop *coverp* and *powerc*. From the ANOVA, it seems like we have 5 potential candidates to drop, namely *agecar*, *sexp*, *usec*, *fleetc* and *sportc*. Only 5 items, powerset only contains 32 items, definitely mass-searchable.
 ```{r}
-sev_f2 = update(sev_f1, ~. - usec - coverp - powerc)
-sev_gam2 = gam(sev_f4, sev_fam, sev_data)
+sev_f2 = update(sev_f1, ~. - coverp - powerc)
+sev_gam2 = gam(sev_f2, sev_fam, sev_data)
 summary(sev_gam2)
 print("------------------------------------------------------------------")
 anova(sev_gam2)
 par(mfrow=c(1, 2))
 plot(sev_gam2, scheme=2)
+```
+
+Mass-search. I wrote *powerset_formula* to do this, however seems like we can't drop anymore variables.
+```{r}
+vars_to_drop = c("agecar", "sexp", "usec", "fleetc", "sportc")
+formulas_list = powerset_formula(vars_to_drop, base_formula=sev_f2, operation="-")
+
+gams = list()
+for (idx in 1:length(formulas_list)) {
+  
+  tmp_formula = formulas_list[[idx]]
+  gams[[idx]] = gam(tmp_formula, sev_fam, sev_data)
+}
+
+# for (idx in 1:length(formulas_list)) {
+#   print(paste("##########IDX=", idx, "##########", sep=""))
+#   print(gams[[idx]]$formula)
+#   print(BIC(gams[[idx]]))
+# }
+
+for (idx in 1:length(formulas_list)) {
+  if (BIC(gams[[idx]]) < BIC(sev_gam2)) {
+    print(paste("IDX = ", idx, sep=""))
+  }
+}
 ```
 
 
@@ -339,9 +363,10 @@ postcodes['fuelc'] = data[1, 'fuelc']
 postcodes['split'] = data[1, 'split']
 postcodes['fleetc'] = data[1, 'fleetc']
 postcodes['sportc'] = data[1, 'sportc']
+postcodes['usec'] = data[1, 'usec']
 sev_preds = predict.gam(sev_gam2, newdata=postcodes, type="terms", terms=s(LAT, LONG))
 
-sev_clustering_df = as.data.frame(cbind(postcodes$LAT, postcodes$LONG, sev_preds[, 7]))
+sev_clustering_df = as.data.frame(cbind(postcodes$LAT, postcodes$LONG, sev_preds[, 8]))
 names(sev_clustering_df) = c("LAT", "LONG", "s_vals")
 
 # -----------------------------------------------------------------------------------------------
@@ -413,19 +438,19 @@ print(paste("Best is", best, "clusters"))
 
 ```
 
-Even with BIC, the best is 18 clusters. I'm not willing to work with that many clusters, so I think I will limit the search into 10 clusters only. In reflection I should've realized this as well for the frequency gathering (imposing a strict "I want x many clusters maximum"), but alas, I'd rather not go back there.
+Even with BIC, the best is 20 clusters. I'm not willing to work with that many clusters, so I think I will limit the search into 10 clusters only. In reflection I should've realized this as well for the frequency gathering (imposing a strict "I want x many clusters maximum"), but alas, I'd rather not go back there.
 
-With that said, the best is with 4 clusters only.
+With that said, the best is with 5 clusters only.
 ```{r}
 which.min(sev_bic_results[1:8]) + 2
 ```
 
 Distribution of the clustering.
 ```{r, echo=FALSE}
-sev_postcode_to_cluster = sev_fctr_rslts[, c("CODPOSS", "x7clusters")]
+sev_postcode_to_cluster = sev_fctr_rslts[, c("CODPOSS", "x5clusters")]
 saveRDS(sev_postcode_to_cluster, file="../data/sev_postcode_bins.Rda")
 
-barplot(summary(as.factor(sev_postcode_to_cluster[, "x7clusters"])))
+barplot(summary(as.factor(sev_postcode_to_cluster[, "x5clusters"])))
 ```
 
 And here is the result of the spatial clustering for severity. A darker shade indicates higher risk.
@@ -445,6 +470,7 @@ sev_age_dat['fuelc'] = data[1, 'fuelc']
 sev_age_dat['split'] = data[1, 'split']
 sev_age_dat['fleetc'] = data[1, 'fleetc']
 sev_age_dat['sportc'] = data[1, 'sportc']
+sev_age_dat['usec'] = data[1, 'usec']
 sev_age_dat['LAT'] = 1
 sev_age_dat['LONG'] = 1
 
@@ -458,13 +484,13 @@ colnames(freqs) = c("AGEPH", "Weights")
 sev_age_dat = merge(sev_age_dat, freqs, by="AGEPH", all.y=FALSE, all.x=TRUE)
 
 sev_tmp = sev_tmp[, c("agecar", "sexp", "fuelc", "split", "fleetc", "sportc",
-              "x7clusters", "duree", "AGEPH", "avg_claim")]
+              "x5clusters", "duree", "AGEPH", "avg_claim")]
 ```
 
 
-Trying evtree binning on a large grid. Looks like *alpha* values between 10-30, *depth*=4 would be ideal, with the exact best being 10. Since this part of the grid is only a jump of 5 each, I won't re-partition the grid any further. Thus, I'll set *alpha* as 10.
+Trying evtree binning on a large grid. Looks like *alpha* values between 30-45, *depth*=4 would be ideal, with the exact best being 30. Since this part of the grid is only a jump of 5 each, I won't re-partition the grid any further. Thus, I'll set *alpha* as 30.
 ```{r}
-sev_glm_formula = avg_claim ~ agecar + sexp + fuelc + split + fleetc + sportc + x7clusters + AGEPH_binned + offset(log(duree))
+sev_glm_formula = avg_claim ~ agecar + sexp + fuelc + split + fleetc + sportc + x5clusters + AGEPH_binned + offset(log(duree))
 
 a_grid = c(seq(5, 50, by=5), seq(60, 100, by=10), seq(150, 600, by=50))
 sev_aic_vals = aic_evtree_alpha_and_depth(gam_preds=sev_age_dat, gam_var='AGEPH', 
