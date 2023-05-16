@@ -12,4 +12,13 @@ To do:
     Check "accuracy" of the claim amount given freq >= 1.
     Find an "accuracy" metric for the combination of both predictions.
 
+    Check for interaction effects (in GLM) between:
+	- agecar, fleetc
+	- usec, fleetc
+	- agecar, usec
+	- sexp, powerc
+	- sexp, sportc
+	- split, sportc 
+	- split, powerc
+
 Finished:
