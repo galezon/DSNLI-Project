@@ -24,6 +24,12 @@ postcodes = read_xls("../initial_docs/inspost.xls")
 data = read.csv("../data/train.csv")
 names(data)[names(data) == "X"] = "policy_id"  # so we can identify if needed
 
+# I realized later on that we need to average the chargtot over number of claims.
+data2 = data %>% 
+          filter(nbrtotc > 0) %>%
+          mutate(avg_claim = chargtot/nbrtotc)
+
+
 set.seed(0916778)
 ```
 
@@ -60,9 +66,17 @@ par(mfrow=c(2, 2))
 
 hist(data$AGEPH)  # right-skewed slightly
 hist(data$nbrtotc)  # 1 and even 2 is not so insignificant apparently
-hist(data$chargtot)  # very hard to see anything, Gamma would be the most appropriate here
+hist(data2$avg_claim)  # hard to see anything here, will split below.
 hist(data$duree)  # for the vast majority exposure is the whole year
 ```
+
+We can see the Gamma distribution better. Keep in mind the different scales, and the right plot's first bucket includes zero.
+```{r}
+par(mfrow=c(1, 2))
+hist(as.matrix(data2 %>% select(avg_claim) %>% filter(avg_claim < 20000)), main="avg_claims < 20,000")
+hist(as.matrix(data2 %>% select(avg_claim) %>% filter(avg_claim >= 20000)), main="avg_claims >= 20,000")
+```
+
 
 The only continuous predictor we have is age, and even then I might bin it later. The plots below are not very informative, so I will plot a Poisson GLM for nrtotc vs ageph and a Gamma GLM for chargtot vs ageph real quick.
 ```{r, echo=FALSE}
