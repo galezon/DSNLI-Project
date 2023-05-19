@@ -27,7 +27,7 @@ As a spoiler, here are the chosen models:
   * Poisson GLM (freq): log(nbrtotc) ~ agecar + sexp + fuelc + split + fleetc + coverp + powerc + 
     freq_codposs + freq_AGEPH + offset(log(duree))
   * NegBinom GLM (freq): log(nbrtotc) ~ agecar + fuelc + split + coverp + powerc + freq_codposs + freq_AGEPH
-  * Gamma GLM (sev): log(avg_claim) ~ fuelc + split + sev_AGEPH + sev_codposs
+  * Gamma GLM (sev): log(avg_claim) ~ fuelc + splitc + sev_AGEPH + sev_codposs
 
 # Finding a GLM model for frequency.
 
