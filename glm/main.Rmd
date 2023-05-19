@@ -58,14 +58,25 @@ see_interaction = function(var1, var2, data) { # !!as.symbol(var) is needed
 Possible interaction effects.
 ```{r, warning=FALSE, echo=FALSE, results='hide',fig.keep='all'}
 see_interaction("agecar", "fleetc", data)  # Interaction!
+```
+```{r, warning=FALSE, echo=FALSE, results='hide',fig.keep='all'}
 see_interaction("usec", "fleetc", data)  # No interaction!
+```
+```{r, warning=FALSE, echo=FALSE, results='hide',fig.keep='all'}
 see_interaction("agecar", "usec", data)  # Changes in >10 years, interesting
+```
+```{r, warning=FALSE, echo=FALSE, results='hide',fig.keep='all'}
 see_interaction("sexp", "powerc", data)  # Mild Definite interaction
+```
+```{r, warning=FALSE, echo=FALSE, results='hide',fig.keep='all'}
 see_interaction("sexp", "sportc", data)  # Mild interaction!
+```
+```{r, warning=FALSE, echo=FALSE, results='hide',fig.keep='all'}
 see_interaction("split", "sportc", data)  # Interaction!
+```
+```{r, warning=FALSE, echo=FALSE, results='hide',fig.keep='all'}
 see_interaction("split", "powerc", data)  # Slight interaction
 ```
-
 
 ## Poisson GLM
 
