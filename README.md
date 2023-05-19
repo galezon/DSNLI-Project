@@ -5,7 +5,7 @@ Throughout this project there are several notebooks, each represents a task that
   * data_exploration/main.nb.html                  # Data exploration. I decided to remove postcodes and work with (LAT, LONG) instead.
   * gam_binning/main.nb.html                       # Built a simpler GAM so that I can bin AGEPH, and (LAT, LONG).
   * glm/main.nb.html                               # Where I built the GLM for frequency and severity.
-  * random_trees/.ipynb_checkpoints/main.ipynb     # Two random-forests for frequency and severity.
+  * random_trees/main.ipynb                        # Two random-forests for frequency and severity.
 
 
 References:
