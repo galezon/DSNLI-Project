@@ -409,15 +409,59 @@ Save our model.
 # saveRDS(sev_glm3, file="../models/sev_glm_gamma.Rda")
 ```
 
+# Deciding between Poisson and Negative Binomial for frequency
+
+First we need to re-read the stored models and read the validation set as well.
+```{r}
+poi_freq_glm = readRDS("../models/freq_glm_poisson.Rda")
+nb_freq_glm = readRDS("../models/freq_glm_nb.Rda")
+
+sev_glm = readRDS("../models/sev_glm_gamma.Rda")
+
+valid = load_data_post_binning("../data/valid.csv")
+head(valid)
+```
+ 
+Since our two options are of different distributions, I don't think we can compare them directly via deviance, since:
+  - To compute a deviance we need to make an assumption of which distribution generated the data. 
+  - Our two models differs on the basis that we assumed different distributions generated *nbrtotc*.
+  
+I also don't think it makes sense to simply compare the MSE of predicted tariffs and *chargtot*. So, the comparison will just be based on abs((sum(tariff) - sum(chargtot))/sum(chargtot)), and the smaller value wins.
+```{r}
+poi_freq_preds = predict.glm(poi_freq_glm, newdata=valid, type="response")
+nb_freq_preds = predict.glm(nb_freq_glm, newdata=valid, type="response")
+
+sev_freq_preds = predict.glm(sev_glm, newdata=valid, type="response")
+
+poi_tariffs = poi_freq_preds * sev_freq_preds
+nb_tariffs = nb_freq_preds * sev_freq_preds
+
+poi_ratio = (sum(poi_tariffs) - sum(valid$chargtot))/sum(valid$chargtot)
+nb_ratio = (sum(nb_tariffs) - sum(valid$chargtot))/sum(valid$chargtot)
+
+print(paste("Poisson has a ratio of", poi_ratio))
+print(paste("NB has a ratio of", nb_ratio))
+```
+
+Based on the result above, it looks like Poisson distribution for the claim frequency would be more appropriate when we combine it with the gamma distribution for the severity. 
+
+Further analysis on the tariff-plan will be analyzed on the random_forest notebook, located at "../random_trees/main.ipynb".
 
 
+# Saving predictions Poisson and Gamma predictions on test set for further analysis with random_forest based predictions.
 
+```{r}
+test = load_data_post_binning("../data/test.csv")
+head(test)
 
+freq_preds = predict.glm(poi_freq_glm, newdata=test, type="response")
+sev_preds = predict.glm(sev_glm, newdata=test, type="response")
 
+glm_preds = data.frame(freq=freq_preds, sev=sev_preds, tariff=freq_preds*sev_preds)
+head(glm_preds)
 
-
-
-
+# write.csv(glm_preds, file="../data/glm_tariff_preds.csv")
+```
 
 
 
