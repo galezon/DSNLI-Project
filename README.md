@@ -6,6 +6,7 @@ Throughout this project there are several notebooks, each represents a task that
   * gam_binning/main.nb.html                       # Built a simpler GAM so that I can bin AGEPH, and (LAT, LONG).
   * glm/main.nb.html                               # Where I built the GLM for frequency and severity.
   * random_trees/main.ipynb                        # Two random-forests for frequency and severity.
+  * analyze_tariffs/main.ipynb                     # Analyzing the tariff structure made by random forest and glm.
 
 
 References:
