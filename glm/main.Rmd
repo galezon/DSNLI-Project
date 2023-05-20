@@ -457,7 +457,8 @@ head(test)
 freq_preds = predict.glm(poi_freq_glm, newdata=test, type="response")
 sev_preds = predict.glm(sev_glm, newdata=test, type="response")
 
-glm_preds = data.frame(freq=freq_preds, sev=sev_preds, tariff=freq_preds*sev_preds)
+glm_preds = data.frame(policy_id=test$policy_id,freq=freq_preds,
+                       sev=sev_preds, tariff=freq_preds*sev_preds)
 head(glm_preds)
 
 # write.csv(glm_preds, file="../data/glm_tariff_preds.csv")
