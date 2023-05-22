@@ -72,14 +72,79 @@ Save bootstrap since it took so long.
 # saveRDS(dataset_list, "../data/bootstrapped_data.Rda")
 ```
 
+The bootstrap results. Some sanity metrics for the bootstrap results:
 
+* In each portfolio, gather $\frac{\sum_i(boot\_chargtot)_i}{\sum_i(chargtot)_i}$.
 
+* Similarly $\frac{\sum_i(boot\_nbrtotc)_i}{\sum_i(nbrtotc)_i}$.
 
+We then plot these points and see that they are scattered around 1, that is good, since that is a rough indicator of behaving like the original portfolio. Their variance is also rather small, further indicating that we didn't do that bad of a job in the bootstrap.
 
+```{r}
+s_chargtot = rep(0, 50)
+s_nbrtotc = rep(0, 50)
+b_s_chargtot = rep(0, 50)
+b_s_nbrtotc = rep(0, 50)
+for (idx in 1:50) {
+  tmp_data = dataset_list[[idx]]
+  s_chargtot[idx] = sum(tmp_data$chargtot)
+  s_nbrtotc[idx] = sum(tmp_data$nbrtotc)
+  b_s_chargtot[idx] = sum(tmp_data$bootstrap_chargtot)
+  b_s_nbrtotc[idx] = sum(tmp_data$bootstrap_nbrtotc)
+}
+par(mfrow=c(1, 2))
+plot(b_s_chargtot/s_chargtot)
+plot(b_s_nbrtotc/s_nbrtotc)
 
+print(paste("Mean of ratio of sum(bootstrap_chargtot)/sum(chargtot) = ",
+            mean(b_s_chargtot/s_chargtot), sep=""))
+print(paste("Variance of ratio of sum(bootstrap_chargtot)/sum(chargtot) = ",
+            var(b_s_chargtot/s_chargtot), sep=""))
 
+print(paste("Mean of ratio of sum(bootstrap_nbrtotc)/sum(nbrtotc) = ",
+            mean(b_s_nbrtotc/s_nbrtotc), sep=""))
+print(paste("Variance of ratio of sum(bootstrap_nbrtotc)/sum(nbrtotc) = ",
+            var(b_s_nbrtotc/s_nbrtotc), sep=""))
+```
 
+Now, we need to gather the predicted tariffs as well. I accidentally dropped the tariffs but luckily each dataset still has the indexes.
+```{r}
+get_tariffs_sum = function(full_dataset, boot_dataset){
+  indexes = as.numeric(rownames(boot_dataset))
+  tmp_data = add_predictions(full_dataset[indexes,], freq_glm, sev_glm)
+  
+  return(sum(tmp_data[,"tariff_preds"]))
+}
 
+s_tariffs = rep(0, 50)
+for (idx in 1:50) {
+  s_tariffs[idx] = get_tariffs_sum(full_dataset, dataset_list[[idx]])
+}
+```
+
+Now we can finally find an appropriate value for $\theta$. In $42\%$ of cases, the total tariffs is lower than the total (bootstrapped) claims.
+```{r}
+sum_ratios = (s_tariffs - b_s_chargtot)/b_s_chargtot
+plot(sum_ratios, main="(s_tariffs - b_s_chargtot)/b_s_chargtot")
+abline(h=0)
+print(paste("Percentage of datasets with total tariffs lower than total claims =",1 - sum(sum_ratios>= 0)/length(sum_ratios)))
+```
+
+What we would like to do is to find $\theta$ such that $(1 + \theta) \sum \texttt{tariffs} \geq \sum \texttt{chargtot}$ with probability at least $1 - \varepsilon$. We have data $\{\sum\texttt{tariff}, \sum\texttt{chargtot} \}_i$.
+
+Suppose we want $(1 + \theta)a \geq b$, then the solution is $\theta = \frac{b}{a} - 1$. Thus, we can simply order $\{\frac{\sum\texttt{tariffs}}{\sum\texttt{chargtot}} - 1\}$, take the an appropriae quantile, and set that as $\theta$.
+
+For example, if we want at least $95\%$ of the time we have a higher tariff compared to total claims, then we can set $\theta = 0.27$ here.
+```{r}
+sort(b_s_chargtot/s_tariffs) - 1
+```
+
+```{r}
+sum_ratios2 = (s_tariffs*1.27 - b_s_chargtot)/b_s_chargtot
+plot(sum_ratios2, main="(s_tariffs_risk_loaded - b_s_chargtot)/b_s_chargtot")
+abline(h=0)
+print(paste("Percentage of datasets with total tariffs lower than total claims =",1 - sum(sum_ratios2>= 0)/length(sum_ratios)))
+```
 
 
 # Helper functions to create a single bootstrap sample
