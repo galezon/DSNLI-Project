@@ -1,0 +1,232 @@
+---
+title: "Risk Loading"
+output: html_notebook
+---
+
+Load all models, functions and libraries.
+```{r}
+freq_glm = readRDS("../models/freq_glm_poisson.Rda")
+sev_glm = readRDS("../models/sev_glm_gamma.Rda")
+
+source("../r_utils/load_data_post_binning.R")
+
+library(dplyr)
+library(robustbase)
+```
+
+Load datasets.
+```{r}
+# bootstrap sampling below explicitly requires full_dataset to be defined
+full_dataset = load_data_post_binning("../initial_docs/Assignment.csv")
+
+# set the NAs automatically to zero afterwards, we do want 0/0 = 0 in this case
+full_dataset["avg_claim"] = full_dataset["chargtot"] / full_dataset["nbrtotc"]
+full_dataset[is.na(full_dataset["avg_claim"]), "avg_claim"] = 0
+```
+
+What I will implement is a simple $\Pi(X) = (1+\theta)\mathbb{E}X$, where $X$ is the risk characteristic ($X= \texttt{Freq}\cdot\texttt{Sev}$). I couldn't find an exact idea on what should $\theta$ be, merely that it is positive. I have seen ideas here and there that $\theta$ should be such that the probability of ruin (having less cash reserves than claims) is small, say $\varepsilon$.
+
+So, what I will do is build a bootstrap algorithm to the GLMs we already have. We keep the GLMs for frequency and severity we already have to create tariffs, we instead create say $B=100$ bootstrapped portfolios. For each portfolio $P_i$, we have the total tariffs $T_i$ that we predicted with our GLMs, and the total number of claims ( sum(chargtot) ) $CT_i$. We then set $\theta$ as the number such that at least $(1-\varepsilon)B$ portfolios have $(1+\theta)T_i \geq CT_i$.
+
+Finding the tariff for an individual is simple enough, we simply have to run our two glm models and take the product. Finding the *chargtot* for an individual is more complicated however:
+
+* **nbrtotc**: When calculating the tariff we had to find mean of the frequency $\hat{F}_i$. Since we used a Poisson GLM, we can simply sample from a $Poi(\hat{F}_i)$ and set that as the bootstrapped *nbrtotc*.
+* **avg_claim**: Since our GLM only contains categorical variables, what I will do is gather all other individuals within the same risk category. This will allows us to have an observation set of *avg_claim* for each risk category, and I will *fit* in a Gamma distribution for each risk category. The two parameters for the gamma distribution will be estimated via method of moments. We then sample from the gamma distribution to get the *avg_claim* for a single bootstrap observation.
+
+The bootstrap procedure for *avg_claim* is already a simplification, I think there is another way to properly bootstrap a Gamma glm, via shape-mean parametrization, but I do not have the necessary knowledge at hand at the moment.
+
+I will keep the functions I need here in this file, so that it's less of a hassle to check what I did.
+
+
+Function below generates a single bootstrap dataset as described above.
+```{r}
+generate_single_bootstrap_dataset = function(full_dataset, frac_observations,
+                                             freq_glm, sev_glm) {
+
+  tmp1 = grab_bootstrap_sample(full_dataset, frac_observations)  # grab observations first
+  tmp2 = add_predictions(tmp1, freq_glm, sev_glm)
+  tmp3 = add_bootstrap_nbrtotc(tmp2)
+  tmp4 = add_bootstrap_avgclaim_and_chargtot(full_dataset, tmp3)
+  
+  return(tmp4)
+}
+
+```
+
+
+I will generate 50 datasets with 30% number of samples each, and we can check the dataset properties. I will also throw away most of the columns, only keeping necessary ones.
+```{r}
+dataset_list = list()
+# for (idx in 1:50) {
+#   tmp_bootstrap_sample = generate_single_bootstrap_dataset(full_dataset, 0.3,
+#                                                            freq_glm, sev_glm)
+#   to_store = tmp_bootstrap_sample %>% select(nbrtotc, avg_claim, chargtot,
+#                                             bootstrap_nbrtotc, bootstrap_avg_claim,
+#                                              bootstrap_chargtot)
+#   dataset_list[[idx]] = to_store
+# }
+```
+
+Save bootstrap since it took so long.
+```{r}
+# saveRDS(dataset_list, "../data/bootstrapped_data.Rda")
+```
+
+
+
+
+
+
+
+
+
+
+
+# Helper functions to create a single bootstrap sample
+
+```{r}
+grab_bootstrap_sample = function(data, boot_sample_size) {
+  size = floor(boot_sample_size * nrow(data))
+  indexes = sample(nrow(data), size=size, replace=TRUE)
+  
+  return(data[indexes, ])
+}
+```
+
+```{r}
+add_predictions = function(bootstrap_data, freq_glm, sev_glm) {
+  tmp_data = bootstrap_data  # never mutate incoming data!
+  
+  tmp_data["freq_preds"] = predict.glm(object=freq_glm,
+                                       newdata=tmp_data,
+                                       type="response")
+  tmp_data["sev_preds"] = predict.glm(object=sev_glm,
+                                      newdata=tmp_data,
+                                      type="response")
+  tmp_data["tariff_preds"] = tmp_data["freq_preds"] * tmp_data["sev_preds"]
+  
+  return(tmp_data)
+}
+```
+
+```{r}
+add_bootstrap_nbrtotc = function(bootstrap_data_with_predictions) {
+  tmp_data = bootstrap_data_with_predictions
+
+  get_pois = function(row) {
+    return(rpois(1, as.numeric(row['freq_preds'])))
+  }
+  
+  tmp_data["bootstrap_nbrtotc"] = apply(tmp_data, 1, get_pois)
+  
+  return(tmp_data)
+}
+```
+
+```{r}
+add_bootstrap_avgclaim_and_chargtot = function(full_dataset, bootdata_w_preds_and_boot_nbrtotc) {
+  tmp_data = bootdata_w_preds_and_boot_nbrtotc
+  
+  tmp_data["bootstrap_avg_claim"] = apply(tmp_data, 1, get_gamma)
+  tmp_data["bootstrap_chargtot"] = tmp_data["bootstrap_avg_claim"] * tmp_data["bootstrap_nbrtotc"]
+  
+  return(tmp_data) 
+  
+}
+
+get_gamma = function(row) {
+  tmp_fuelc = getElement(row, "fuelc")
+  tmp_split = getElement(row, "split")
+  tmp_sev_AGEPH = getElement(row, "sev_AGEPH")
+  tmp_sev_codposs = getElement(row, "sev_codposs")
+  
+  # get common risk class, and condition only on conditions where avg_claim is larger than 0
+  risk_class = full_dataset %>% filter(fuelc==tmp_fuelc, split==tmp_split,
+                                       sev_AGEPH==tmp_sev_AGEPH,
+                                       sev_codposs==tmp_sev_codposs, avg_claim > 0)
+  avg_claims = risk_class$avg_claim
+  
+  if(nrow(risk_class) == 0) {  # no valid observations => just return global mean
+#    full_dataset %>% filter(avg_claim > 0) %>% select(avg_claim) %>% summarize(mean = 
+#                            mean(avg_claim))
+#     mean
+# 1 1627.996
+    return(1628)
+  }
+  else if (nrow(risk_class) <= 3) {  # too low to try anything fancy, just return the mean
+    return( round(mean(avg_claims), 0) ) 
+  } 
+  else {
+    # method of moments
+    mu = mean(avg_claims)
+    s = sd(avg_claims)
+    
+    k = (mu/s)^2
+    theta = (s^2)/mu
+    
+    return(round(rgamma(n=1, shape=k, scale=theta), 0))
+  }
+}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

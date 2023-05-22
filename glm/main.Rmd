@@ -24,10 +24,11 @@ data = load_data_post_binning("../data/train.csv")
 Now that all possible co-variates are factors, we will try to build the GLM. We will try to see (Poisson, over-dispersed Poisson, negative binomial) for frequency, and (gamma, logNormal) for severity. I now realized that I should have made a strict restriction on the number of bins, 16 for *AGEPH* is too much, and thus I don't want to consider interaction effects between *AGEPH* and other co-variates.
 
 As a spoiler, here are the chosen models:
-  * Poisson GLM (freq): log(nbrtotc) ~ agecar + sexp + fuelc + split + fleetc + coverp + powerc + 
+
+* Poisson GLM (freq): log(nbrtotc) ~ agecar + sexp + fuelc + split + fleetc + coverp + powerc + 
     freq_codposs + freq_AGEPH + offset(log(duree))
-  * NegBinom GLM (freq): log(nbrtotc) ~ agecar + fuelc + split + coverp + powerc + freq_codposs + freq_AGEPH
-  * Gamma GLM (sev): log(avg_claim) ~ fuelc + splitc + sev_AGEPH + sev_codposs
+* NegBinom GLM (freq): log(nbrtotc) ~ agecar + fuelc + split + coverp + powerc + freq_codposs + freq_AGEPH
+* Gamma GLM (sev): log(avg_claim) ~ fuelc + splitc + sev_AGEPH + sev_codposs
 
 # Finding a GLM model for frequency.
 
@@ -225,7 +226,7 @@ BIC_vals2[BIC_vals2 <= BIC(models[[3]])]
 
 Save the NB model.
 ```{r}
-saveRDS(models[[3]], file="../models/freq_glm_nb.Rda")
+# saveRDS(models[[3]], file="../models/freq_glm_nb.Rda")
 ```
 
 
@@ -423,8 +424,9 @@ head(valid)
 ```
  
 Since our two options are of different distributions, I don't think we can compare them directly via deviance, since:
-  - To compute a deviance we need to make an assumption of which distribution generated the data. 
-  - Our two models differs on the basis that we assumed different distributions generated *nbrtotc*.
+
+* To compute a deviance we need to make an assumption of which distribution generated the data. 
+* Our two models differs on the basis that we assumed different distributions generated *nbrtotc*.
   
 I also don't think it makes sense to simply compare the MSE of predicted tariffs and *chargtot*. So, the comparison will just be based on abs((sum(tariff) - sum(chargtot))/sum(chargtot)), and the smaller value wins.
 ```{r}

@@ -73,8 +73,8 @@ hist(data$duree)  # for the vast majority exposure is the whole year
 We can see the Gamma distribution better. Keep in mind the different scales, and the right plot's first bucket includes zero.
 ```{r}
 par(mfrow=c(1, 2))
-hist(as.matrix(data2 %>% select(avg_claim) %>% filter(avg_claim < 20000)), main="avg_claims < 20,000")
-hist(as.matrix(data2 %>% select(avg_claim) %>% filter(avg_claim >= 20000)), main="avg_claims >= 20,000")
+hist(as.matrix(data2 %>% filter(avg_claim < 20000) %>% dplyr::select(avg_claim)), main="avg_claims < 20,000")
+hist(as.matrix(data2 %>% filter(avg_claim >= 20000) %>% dplyr::select(avg_claim)), main="avg_claims >= 20,000")
 ```
 
 
@@ -83,8 +83,8 @@ The only continuous predictor we have is age, and even then I might bin it later
 par(mfrow=c(1, 2))
 plot(cbind(data$AGEPH, data$nbrtotc), xlab="Age of Policy Holder", ylab="Number of Claims",
      main="nbrtotc vs ageph")
-plot(cbind(data$AGEPH, data$chargtot), xlab="Age of Policy Holder", ylab="Claim Amount",
-     main="chargtot vs ageph")
+plot(cbind(data2$AGEPH, data2$avg_claim), xlab="Age of Policy Holder", ylab="Claim Amount",
+     main="avg_claim vs ageph")
 ```
 
 Quick Poisson GLM and plot. The Gamma GLM of chargtot vs ageph did not go well. We can definitely see that older people are safer drivers.
@@ -169,7 +169,7 @@ grid.arrange(plot1, plot2, ncol=2)
 
 Save the processed train data.
 ```{r}
-save(data, file="../data/train.Rda")
+# save(data, file="../data/train.Rda")
 ```
 
 
