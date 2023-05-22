@@ -93,8 +93,8 @@ for (idx in 1:50) {
   b_s_nbrtotc[idx] = sum(tmp_data$bootstrap_nbrtotc)
 }
 par(mfrow=c(1, 2))
-plot(b_s_chargtot/s_chargtot)
-plot(b_s_nbrtotc/s_nbrtotc)
+plot(b_s_chargtot/s_chargtot, main="sum(boot_chargtot) / sum(chargtot)")
+plot(b_s_nbrtotc/s_nbrtotc, main="sum(boot_nbrtotc) / sum(nbrtotc)")
 
 print(paste("Mean of ratio of sum(bootstrap_chargtot)/sum(chargtot) = ",
             mean(b_s_chargtot/s_chargtot), sep=""))
