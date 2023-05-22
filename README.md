@@ -7,6 +7,7 @@ Throughout this project there are several notebooks, each represents a task that
   * glm/main.nb.html                               # Where I built the GLM for frequency and severity.
   * random_trees/main.ipynb                        # Two random-forests for frequency and severity.
   * analyze_tariffs/main.ipynb                     # Analyzing the tariff structure made by random forest and glm.
+  * risk_loading/main.nb.html
 
 
 References:
